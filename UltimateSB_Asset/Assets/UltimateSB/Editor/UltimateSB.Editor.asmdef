@@ -1,0 +1,16 @@
+{
+    "name": "UltimateSB.Editor",
+    "rootNamespace": "",
+    "references": [
+        "GUID:1e94ce8181af61c4381de1af07c56ef1"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,451 @@
+#pragma kernel SimulateTruss
+#pragma kernel HashTrussForces
+#pragma kernel SimulateNode
+#pragma kernel RunCC
+#pragma kernel RunIC
+#pragma kernel CCMeshCalc
+
+#define MAX_FLT 10000000.0
+#define MIN_DEF 0.01
+#define MIN_PNTR 0.01
+#define DAMAGE_K 0.003
+
+struct TransfE
+{
+    float3 lpos;
+    float3 lscale;
+    float4 lrot;
+    int trianglesCount;
+    int colliderType;
+};
+
+struct CCData
+{
+    TransfE tre;
+    float sphRad;
+};
+
+struct RD
+{
+    bool itrs;
+    float dist;
+};
+
+struct PointerForce
+{
+    int CE_index;
+    float3 origin;
+    float3 vect;
+};
+
+struct TrussData
+{
+    float restLength;
+    int2 indexPair;
+};
+
+struct TrussNodeInfo
+{
+    int trussID;
+    int right;
+};
+
+struct CCOUT
+{
+    bool coll;
+    float3 t;
+    float ml;
+};
+
+struct NodeOtherData
+{
+    int trussesConnected;
+    float mass;
+    float3 normal;
+    float3 startPosition;
+    float weight;
+};
+
+struct ICData
+{
+    float3 cvel;
+    float3 cpoint;
+};
+
+cbuffer SimulationParams : register(b0)
+{
+     float dTime;
+     float maxAmplitude;
+     float stiffness;
+     float stiffnessO;
+     float damping;
+     int nodesCount;
+     int collisionType;
+};
+
+cbuffer ICParams : register(b1)
+{
+    float damMul;
+    float minVel;
+    float kind1Rad;
+};
+
+StructuredBuffer<TrussData> ROTrussesData : register(t0);
+StructuredBuffer<TrussNodeInfo> RONodeTInfo: register(t1);
+StructuredBuffer<NodeOtherData> RONodeOtherData: register(t2);
+
+StructuredBuffer<CCData> ROCCData: register(t3);
+StructuredBuffer<int> ROCCCounter: register(t4);
+
+StructuredBuffer<ICData> ROICDataONE: register(t5);
+
+StructuredBuffer<float3> ROMeshVertONE: register(t6);
+StructuredBuffer<int> ROMeshTriONE: register(t7);
+StructuredBuffer<TransfE> ROTransfONE: register(t8);
+
+RWStructuredBuffer<float3> Diagnostics;
+
+RWStructuredBuffer<float3> TotalDForce: register(u0);
+RWStructuredBuffer<float3> RWNodePositions: register(u1);
+RWStructuredBuffer<float3> RWNodeVelocities: register(u2);
+RWStructuredBuffer<float3> RWTrussForce: register(u3);
+RWStructuredBuffer<float> RWNodeStiffnessLengthTO: register(u4);
+RWStructuredBuffer<float3> RWStiffnesPoints : register(u6); // init in start
+
+[numthreads(8,8,1)]
+void SimulateTruss(uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x + id.y * 8 * 18;
+    int2 pairID = ROTrussesData[idx].indexPair;
+    float3 vec = (RWNodePositions[pairID.x] - RWNodePositions[pairID.y]);
+    if(length(vec) == 0) return;
+    float delta = length(vec) - ROTrussesData[idx].restLength;
+    float3 springForce = delta * stiffness * normalize(vec);
+    float3 dampingForce = normalize(vec) 
+    * dot(RWNodeVelocities[pairID.x] - RWNodeVelocities[pairID.y], normalize(vec)) 
+    * damping;
+     
+    RWTrussForce[idx] = springForce + dampingForce;
+}
+
+[numthreads(256,1,1)]
+void HashTrussForces(uint3 id : SV_DispatchThreadID)
+{
+    TotalDForce[id.x] = 0;
+    int trussesCount = RONodeOtherData[id.x].trussesConnected;
+    for(int i = 0; i < trussesCount; i++)
+	{
+           int index = i * nodesCount + id.x;
+           int trussIndex = RONodeTInfo[index].trussID;
+           TotalDForce[id.x] +=  RWTrussForce[trussIndex] *   RONodeTInfo[index].right;
+    }
+}
+
+float3 RELTRANSF(TransfE tre, float3x3 localCM, float3 p)
+{
+    float1x3 scale = float3(tre.lscale.x * 2.0, tre.lscale.y * 2.0,tre.lscale.z * 2.0);
+    return (tre.lpos + mul(localCM, p) * scale);
+}
+
+float3 ReactTO(int index)
+{
+     float cv = maxAmplitude *  RONodeOtherData[index].weight;
+     float3 vectorToOrigin = RWStiffnesPoints[index] - RWNodePositions[index];
+     float distance = length(vectorToOrigin);
+     if(distance == 0) return 0;
+
+     float offsetMagnitude = distance <= cv ? 0 : distance - cv;
+     RWStiffnesPoints[index] -= normalize(vectorToOrigin) * offsetMagnitude; 
+
+     float3 dampingForce = normalize(vectorToOrigin) 
+        * dot(RWNodeVelocities[index], normalize(vectorToOrigin)) 
+        * damping;
+
+      float3 toOR = RWNodePositions[index] - RONodeOtherData[index].startPosition;   
+     RWNodePositions[index] = length(toOR) > 1.0 ? RONodeOtherData[index].startPosition + normalize(toOR) * 1.0 : RWNodePositions[index];
+     return (normalize(vectorToOrigin) * stiffnessO * distance - dampingForce) * (1.1 - RONodeOtherData[index].weight);
+}
+
+float3x3 ComputeInverse(float3x3 mat)
+{
+    float a = mat[0][0], b = mat[0][1], c = mat[0][2];
+    float d = mat[1][0], e = mat[1][1], f = mat[1][2];
+    float g = mat[2][0], h = mat[2][1], i = mat[2][2];
+
+    float det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+    
+    float invDet = 1.0 / det;
+
+    float3x3 inverseMatrix;
+    inverseMatrix[0][0] = (e * i - f * h) * invDet;
+    inverseMatrix[0][1] = (c * h - b * i) * invDet;
+    inverseMatrix[0][2] = (b * f - c * e) * invDet;
+    inverseMatrix[1][0] = (f * g - d * i) * invDet;
+    inverseMatrix[1][1] = (a * i - c * g) * invDet;
+    inverseMatrix[1][2] = (c * d - a * f) * invDet;
+    inverseMatrix[2][0] = (d * h - e * g) * invDet;
+    inverseMatrix[2][1] = (b * g - a * h) * invDet;
+    inverseMatrix[2][2] = (a * e - b * d) * invDet;
+
+    return inverseMatrix;
+}
+
+CCOUT DetectBoxCollision(CCData ccD, float3x3 localCoordinateMatrix,  uint index)
+{
+    CCOUT collision;
+    TransfE data = ccD.tre;
+    float3 delta = RWNodePositions[index] - data.lpos;
+    float3x3 inverseCoordinate = ComputeInverse(localCoordinateMatrix); 
+    float3 localBoundPoint = mul(inverseCoordinate, delta);
+
+    float3 absolutePoint = abs(localBoundPoint);
+    collision.coll = absolutePoint.x < data.lscale.x
+    && absolutePoint.y < data.lscale.y
+    && absolutePoint.z < data.lscale.z;
+
+    float3 dist = data.lscale - abs(localBoundPoint);
+    float minVal = min(dist.x, min(dist.y, dist.z));
+    float3 offset = float3(
+        minVal == dist.x ? minVal : 0.0, 
+        minVal == dist.y ? minVal : 0.0, 
+        minVal == dist.z ? minVal : 0.0);
+
+    float3 cSidePoint = localBoundPoint +  sign(localBoundPoint) * offset;
+    collision.t = data.lpos + mul(localCoordinateMatrix, cSidePoint);
+    return collision;
+}
+
+float3 BARYC(float3 p, float3 vertex1, float3 vertex2, float3 vertex3)
+{
+    float3 v0 = vertex2 - vertex1;
+    float3 v1 = vertex3 - vertex1;
+    float3 v2 = p - vertex1;
+
+    float dot00 = dot(v0, v0);
+    float dot01 = dot(v0, v1);
+    float dot11 = dot(v1, v1);
+    float dot20 = dot(v2, v0);
+    float dot21 = dot(v2, v1);
+
+    float invDenom = 1.0 / (dot00 * dot11 - dot01 * dot01);
+    float barycentricY = (dot11 * dot20 - dot01 * dot21) * invDenom;
+    float barycentricZ = (dot00 * dot21 - dot01 * dot20) * invDenom;
+    float barycentricX = 1.0 - barycentricY - barycentricZ;
+
+    return float3(barycentricX, barycentricY, barycentricZ);
+}
+
+float3 PLine(float3 np, float p0, float3 p1)
+{
+    float3 lV = p1 - p0;
+    float d = dot(np - p0, normalize(lV));
+    if(d <= 0) return p0;
+    if(d >= length(lV))return p1;
+    return p0 + normalize(lV) * d;
+}
+
+CCOUT PointTr(float3 np, float3 p1, float3 p2, float3 p3, CCOUT c)
+{
+    CCOUT r;
+    float3 n = normalize(cross(p2 - p1, p3 - p1));
+    float3 pp = np - (dot(n, np) - dot(n, p1)) *n;
+    float mp = length(pp - np);
+    if(mp >= c.ml) return c;
+
+    float3 bc = BARYC(pp, p1, p2, p3);
+    if(bc.x >= 0 && bc.y >= 0 && bc.z >= 0)
+    {
+        r.t = pp;
+        r.ml = mp;
+        return r;
+    }
+
+    float3x3 npls = float3x3 (
+        PLine(pp, p1, p2) - np,
+        PLine(pp, p3, p2) - np,
+        PLine(pp, p1, p3) - np
+    ); 
+
+    float3 cl = min(npls[2], min(npls[0], npls[1]));
+    if(length(cl) >= c.ml) return c;
+    
+    r.t = np + cl;
+    r.ml = length(cl);
+    return r;
+}
+
+RD RayTR(float3 ro, float3 rd, float3 a, float3 b, float3 c, bool fo)
+{
+    RD outrd;
+    outrd.itrs = false;
+    outrd.dist = 0.0;
+    float epsilon = 0.0000001;
+    float3 ba = b - a;
+    float3 ca = c - a;
+    float3 h = cross(rd, ca);
+    float det = dot(ba, h);
+    if (det < epsilon && (fo || det > -epsilon)) return outrd;
+    float f = 1.0 / det;
+    float3 s = ro - a;
+    float u = dot(s, h) * f;
+    if (u < 0.0 || u > 1.0) return outrd;
+    float3 q = cross(s, ba);
+    float v = dot(rd, q) * f;
+    if (v < 0.0 || u + v > 1.0) return outrd;
+    float t = dot(ca, q) * f;
+    outrd.itrs = fo || t > epsilon;
+    outrd.dist = t;
+    return outrd;
+}
+
+
+CCOUT DetectSphere(CCData data,uint index) 
+{
+    CCOUT rout;
+    float3 lcent = data.tre.lpos;
+    float3 vec = RWNodePositions[index] - lcent;
+    float3 dir = length(vec) == 0 ? float3(1.0 , 0, 0) : normalize(vec);
+    rout.t = lcent + dir * data.sphRad;
+    rout.coll = length(vec) < data.sphRad;
+    return rout;
+}
+
+float3 RotV(float4 r, float3 v)
+{
+    float3 u = r.xyz;
+    float s = r.w;
+    return 2.0 * dot(u, v) * u
+          + (s*s - dot(u, u)) * v
+          + 2.0 * s * cross(u, v);
+}
+
+float3x3 GetLocalCoordMatrix(float4 rot)
+{
+    float3x3 IDENTITY = float3x3(
+        float3(1.0, 0, 0),
+        float3(0, 1.0, 0),
+        float3(0, 0, 1.0)
+        );
+
+    float3 r = RotV(rot, IDENTITY[0]);
+    float3 u = RotV(rot, IDENTITY[1]);
+    float3 f = RotV(rot, IDENTITY[2]);
+
+    return float3x3(
+        float3(r.x, u.x, f.x),
+        float3(r.y, u.y, f.y),
+        float3(r.z, u.z, f.z)
+        );
+}
+
+void ICMeshCalc(uint idx, float3x3 localCM, ICData icd, TransfE tre)
+{
+    for(uint i = 0; i < tre.trianglesCount; i +=3)
+    {
+        float3x3 trCoord = float3x3(
+            RELTRANSF(tre, localCM, ROMeshVertONE[ROMeshTriONE[i]]),
+            RELTRANSF(tre, localCM, ROMeshVertONE[ROMeshTriONE[i + 1]]),
+            RELTRANSF(tre, localCM, ROMeshVertONE[ROMeshTriONE[i + 2]])
+            );
+
+        RD interRD = RayTR(RWNodePositions[idx], -10.0 * icd.cvel, 
+            trCoord[0], trCoord[1], trCoord[2], true);
+       
+        if(interRD.itrs)
+        {          
+            RWNodeVelocities[idx] += icd.cvel * damMul * exp(-1.0 * interRD.dist) * DAMAGE_K;       
+            return;
+        }
+    }
+}
+
+[numthreads(256,1,1)] 
+void CCMeshCalc(uint3 id : SV_DispatchThreadID)
+{
+    CCOUT cout;
+    int itrsC = 0;
+    cout.ml = MAX_FLT;
+    TransfE data = ROTransfONE[0];
+    float3x3 lcm = GetLocalCoordMatrix(data.lrot);
+
+
+    for(uint i = 0; i < data.trianglesCount ; i +=3){
+        
+         float3x3 trCoord = float3x3(
+            RELTRANSF(data, lcm, ROMeshVertONE[ROMeshTriONE[i]]),
+            RELTRANSF(data, lcm, ROMeshVertONE[ROMeshTriONE[i + 1]]),
+            RELTRANSF(data, lcm, ROMeshVertONE[ROMeshTriONE[i + 2]])
+            );
+
+        cout = PointTr(RWNodePositions[id.x], trCoord[0], trCoord[1], trCoord[2], cout);
+       if(RayTR(RWNodePositions[id.x], float3(1000.0, 0, 0) + 0.0000001, trCoord[0], trCoord[1], trCoord[2], false).itrs)
+            itrsC++;
+    }
+
+    if(itrsC % 2 == 1)
+	{
+         RWNodePositions[id.x] = cout.t;
+         RWNodeVelocities[id.x] = 0;
+    }
+}
+
+[numthreads(256,1,1)] 
+void RunIC(uint3 id : SV_DispatchThreadID)
+{
+    ICData icd = ROICDataONE[0];
+    TransfE tre = ROTransfONE[0];
+    if(dot(RONodeOtherData[id.x].normal, -1.0 * icd.cvel) < minVel) return;
+
+    switch(collisionType)
+    {
+            case 0:
+                 float ad = length(icd.cpoint - RWNodePositions[id.x]);
+                 RWNodeVelocities[id.x] += ad <= kind1Rad ? icd.cvel * (kind1Rad - ad) * damMul : 0;
+                 break;
+            case 1:
+                 ICMeshCalc(id.x, GetLocalCoordMatrix(tre.lrot), icd, tre);
+                 break;
+    }
+}
+
+void UPD(CCOUT dc, uint idx)
+{
+    if(dc.coll) //&& length(dc.t - RWNodePositions[id.x]) > MIN_PNTR)
+        {
+             RWNodePositions[idx] = dc.t;
+             RWNodeVelocities[idx] = 0;
+        }
+}
+
+[numthreads(256,1,1)] 
+void RunCC(uint3 id : SV_DispatchThreadID)
+{
+    for(uint i = 0; i < ROCCCounter[0]; i++)
+    {
+        CCData data = ROCCData[i];
+        float3x3 lcm = GetLocalCoordMatrix(data.tre.lrot);
+        CCOUT dc;
+
+        switch(data.tre.colliderType)
+        {
+            case 0:
+                 break;
+            case 1:
+                 dc = DetectSphere(data, id.x);
+                 UPD(dc, id.x);
+                 break;
+            case 2:
+                 dc =  DetectBoxCollision(data,lcm, id.x);
+                 UPD(dc, id.x);
+                 break;
+        }
+    }
+}
+
+[numthreads(256,1,1)] 
+void SimulateNode(uint3 id : SV_DispatchThreadID)
+{
+    float3 deltaForce = TotalDForce[id.x] + ReactTO(id.x);
+    RWNodeVelocities[id.x] += deltaForce * dTime / RONodeOtherData[id.x].mass;
+    RWNodePositions[id.x] += RWNodeVelocities[id.x] * dTime;
+}
