@@ -155,7 +155,7 @@ public class SoftBodyGPU : MonoBehaviour
     TransfE[] _trDataONE;
     CCData[] _ccDatas;
 
-    void Awake()
+    async void Awake()
     {
         _ccDatas = new CCData[maxCollisionsCount];
         _trDataONE = new TransfE[1];
@@ -170,9 +170,6 @@ public class SoftBodyGPU : MonoBehaviour
         var vertices = m_MeshFilter.mesh.vertices;
         var triangles = m_MeshFilter.mesh.triangles;
 
-        var nodeVelocities = new Vector3[_nodesCount];
-        var nodeStiffnessLength = new float[_nodesCount];
-        var nodesPosition = new Vector3[_nodesCount];
         var nodesOther = new NodeOtherData[_nodesCount];
 
         var listTrusses = new List<TrussData>();
@@ -236,16 +233,15 @@ public class SoftBodyGPU : MonoBehaviour
                 weight = m_MeshFilter.sharedMesh.colors[i].a,
                 normal = normals[i],
             };
-            nodesPosition[i] = vertices[i];
-
         }
 
         _positions = new Vector3[_nodesCount];
         InitializeBuffers();
-        FillBuffers(trusses, nodesPosition,
+        FillBuffers(trusses, vertices,
             nodesOther, trussNodeInfos);
 
         Debug.Log($"Body initialized successfully: {_nodesCount} nodes, {_trussesCount} trusses");
+        await System.Threading.Tasks.Task.Delay(0);
     }
 
     const int MAX_TRUSSES = 20736;
