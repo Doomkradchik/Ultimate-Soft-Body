@@ -1,7 +1,5 @@
 using UnityEditor;
 using UnityEngine;
-using System.Collections.Generic;
-using System.Linq;
 
 #if UNITY_EDITOR
 
@@ -14,9 +12,6 @@ public class GPUSMEditor : Editor
         impulseDamageMultiplierProp,
         impulseMinVelocityProp
         ;
-
-    const string COMPUTE_PATH = "Assets/ToFIX/ComputeSMOld.compute";
-    const string EDITOR_SHADER_PATH = "Assets/Shader/EditorWeightShader.shader";
 
 
     private void OnEnable()
@@ -31,7 +26,8 @@ public class GPUSMEditor : Editor
         transform = smgOld.transform;
         targetMesh = transform.GetComponent<MeshFilter>().sharedMesh;
         renderer = transform.GetComponent<Renderer>();
-        editMat = new Material[] { new Material((Shader)AssetDatabase.LoadAssetAtPath(EDITOR_SHADER_PATH, typeof(Shader))) };
+
+        editMat = new Material[] { new Material((Shader)GetAssetByName("EditorWeightShader")) };
         editMat[0].name = "edit";
 
 
@@ -56,7 +52,7 @@ public class GPUSMEditor : Editor
         base.OnInspectorGUI();
 
         physicsComputeShaderProp = serializedObject.FindProperty("physicsComputeShader");
-        physicsComputeShaderProp.objectReferenceValue = AssetDatabase.LoadAssetAtPath(COMPUTE_PATH, typeof(ComputeShader));
+        physicsComputeShaderProp.objectReferenceValue = GetAssetByName("ComputeSB");
         var icKindStatus = (SoftBodyGPU.ImpulseDetectionKind)icKindProp.enumValueIndex;
 
         if (icKindStatus == SoftBodyGPU.ImpulseDetectionKind.Sphere)
@@ -178,6 +174,17 @@ public class GPUSMEditor : Editor
         targetMesh.colors = colors;
     }
 
+    private Object GetAssetByName(string assetName)
+    {
+        string[] assetGuids = AssetDatabase.FindAssets(assetName);
+        if (assetGuids.Length > 0)
+        {
+            string assetPath = AssetDatabase.GUIDToAssetPath(assetGuids[0]);
+            Object asset = AssetDatabase.LoadAssetAtPath<Object>(assetPath);
+            return asset;
+        }
+        return null;
+    }
 }
 
 #endif
