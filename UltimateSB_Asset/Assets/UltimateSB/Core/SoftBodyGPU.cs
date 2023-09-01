@@ -155,7 +155,7 @@ public class SoftBodyGPU : MonoBehaviour
     TransfE[] _trDataONE;
     CCData[] _ccDatas;
 
-    async void Awake()
+    void Awake()
     {
         _ccDatas = new CCData[maxCollisionsCount];
         _trDataONE = new TransfE[1];
@@ -164,11 +164,12 @@ public class SoftBodyGPU : MonoBehaviour
         m_MeshFilter = GetComponent<MeshFilter>();
         m_MeshCollider = GetComponent<MeshCollider>();
 
-        _nodesCount = m_MeshFilter.mesh.vertexCount;
 
         var normals = m_MeshFilter.mesh.normals;
         var vertices = m_MeshFilter.mesh.vertices;
         var triangles = m_MeshFilter.mesh.triangles;
+
+        _nodesCount = vertices.Length;
 
         var nodesOther = new NodeOtherData[_nodesCount];
 
@@ -223,25 +224,23 @@ public class SoftBodyGPU : MonoBehaviour
             lastTrussNodeInfoIndex[idRight]++;
         }
 
-        for (int i = 0; i < vertices.Length; i++)
+        for (int i = 0; i < _nodesCount; i++)
         {
             nodesOther[i] = new NodeOtherData
             {
                 trussesConnected = trussNodeInfosCount[i],
                 startPosition = vertices[i],
                 mass = 0.1f,
-                weight = m_MeshFilter.sharedMesh.colors[i].a,
+                weight = m_MeshFilter.mesh.colors[i].a,
                 normal = normals[i],
             };
         }
 
-        _positions = new Vector3[_nodesCount];
         InitializeBuffers();
         FillBuffers(trusses, vertices,
             nodesOther, trussNodeInfos);
 
         Debug.Log($"Body initialized successfully: {_nodesCount} nodes, {_trussesCount} trusses");
-        await System.Threading.Tasks.Task.Delay(0);
     }
 
     const int MAX_TRUSSES = 20736;
