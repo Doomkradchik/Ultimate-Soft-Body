@@ -210,7 +210,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 366520384}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1, z: -10}
+  m_LocalPosition: {x: 0, y: 10.5, z: -10}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -414,7 +414,7 @@ MeshCollider:
   serializedVersion: 5
   m_Convex: 1
   m_CookingOptions: 30
-  m_Mesh: {fileID: 4068373912626513877, guid: bdeb9fa321cb6cf43a5e43b2ed776ec2, type: 3}
+  m_Mesh: {fileID: 7629811779324647873, guid: 7348555ed1ea01249bf23767c1be03d0, type: 3}
 --- !u!1 &1267755388
 GameObject:
   m_ObjectHideFlags: 0
@@ -570,7 +570,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 919132148616058754}
   m_LocalRotation: {x: 0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: -0, y: 1.09, z: 0}
+  m_LocalPosition: {x: -0, y: 8.93, z: 0}
   m_LocalScale: {x: 5, y: 5, z: 5}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -593,7 +593,7 @@ GameObject:
   - component: {fileID: 669772503}
   - component: {fileID: 669772502}
   m_Layer: 0
-  m_Name: Body_Test_With_Glass_Test_Dynamesh_Remesher_FBX (1)
+  m_Name: test
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -648,4 +648,4 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 919132148616058754}
-  m_Mesh: {fileID: 4068373912626513877, guid: bdeb9fa321cb6cf43a5e43b2ed776ec2, type: 3}
+  m_Mesh: {fileID: 7629811779324647873, guid: 7348555ed1ea01249bf23767c1be03d0, type: 3}

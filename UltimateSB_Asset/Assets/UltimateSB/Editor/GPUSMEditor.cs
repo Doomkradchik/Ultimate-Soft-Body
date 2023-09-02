@@ -1,4 +1,5 @@
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 
 #if UNITY_EDITOR
@@ -24,9 +25,7 @@ public class GPUSMEditor : Editor
 
         smgOld = (SoftBodyGPU)target;
         transform = smgOld.transform;
-        targetMesh = transform.GetComponent<MeshFilter>().sharedMesh;
-        if(targetMesh.colors == null || targetMesh.colors.Length == 0)
-            targetMesh.colors = new Color[targetMesh.vertexCount];
+        meshFilter = transform.GetComponent<MeshFilter>();
         renderer = transform.GetComponent<Renderer>();
 
         editMat = new Material[] { new Material((Shader)GetAssetByName("EditorWeightShader")) };
@@ -52,6 +51,12 @@ public class GPUSMEditor : Editor
     public override void OnInspectorGUI()
     {
         base.OnInspectorGUI();
+
+        if (meshFilter.sharedMesh.colors == null || meshFilter.sharedMesh.colors.Length == 0)
+        {
+            meshFilter.sharedMesh.colors = new Color[meshFilter.sharedMesh.vertexCount];
+            EditorUtility.SetDirty(meshFilter);
+        }
 
         physicsComputeShaderProp = serializedObject.FindProperty("physicsComputeShader");
         physicsComputeShaderProp.objectReferenceValue = GetAssetByName("ComputeSB");
@@ -90,21 +95,35 @@ public class GPUSMEditor : Editor
 
             if (GUILayout.Button("Set to all vertices"))
             {
-                var colors = targetMesh.colors;
-                for (int i = 0; i < targetMesh.vertexCount; i++)
+                var colors = meshFilter.sharedMesh.colors;
+                for (int i = 0; i < meshFilter.sharedMesh.vertexCount; i++)
                     colors[i] = new Color(0, 0, 0, weight);
-                targetMesh.colors = colors;
+                meshFilter.sharedMesh.colors = colors;
             }
 
             if (GUILayout.Button("Stop Editing"))
             {
                 renderer.sharedMaterials = smgOld.materials;
                 Tools.current = Tool.Move;
+                EditorUtility.SetDirty(meshFilter);
             }
         }
 
         serializedObject.ApplyModifiedProperties();
     }
+
+    //void RecalculateColors(MeshFilter meshFilter, Color[] colors)
+    //{
+    //    if (PrefabUtility.IsPartOfAnyPrefab(meshFilter.gameObject))
+    //    {
+    //        Mesh clonedMesh = Instantiate(targetMesh);
+    //        clonedMesh.colors = colors;
+    //        targetMesh = clonedMesh;
+    //        PrefabUtility.RecordPrefabInstancePropertyModifications(meshFilter);
+
+    //        EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
+    //    }
+    //}
 
     private float brushSize = 0.1f;
     private float brushStrength = 0.5f;
@@ -152,28 +171,26 @@ public class GPUSMEditor : Editor
     }
 
     Transform transform;
-    Mesh targetMesh;
+    MeshFilter meshFilter;
     Renderer renderer;
 
     private void EditWeights(Vector3 position)
     {
-        if (targetMesh.colors == null || targetMesh.colors.Length == 0)
-            targetMesh.colors = new Color[targetMesh.vertexCount];
-        var colors = targetMesh.colors;
+        var colors = meshFilter.sharedMesh.colors;
 
-        for (int i = 0; i < targetMesh.vertexCount; i++)
+        for (int i = 0; i < meshFilter.sharedMesh.vertexCount; i++)
         {
-            Vector3 vertexPosition = transform.TransformPoint(targetMesh.vertices[i]);
+            Vector3 vertexPosition = transform.TransformPoint(meshFilter.sharedMesh.vertices[i]);
             float distance = Vector3.Distance(vertexPosition, position);
             if (distance <= brushSize)
             {
                 float normalizedDistance = 1f - (distance / brushSize);
-                var w = Mathf.Lerp(targetMesh.colors[i].a, weight, normalizedDistance * brushStrength);
+                var w = Mathf.Lerp(meshFilter.sharedMesh.colors[i].a, weight, normalizedDistance * brushStrength);
                 colors[i] = new Color(0, 0, 0, w);
             }
         }
 
-        targetMesh.colors = colors;
+        meshFilter.sharedMesh.colors = colors;
     }
 
     private Object GetAssetByName(string assetName)
