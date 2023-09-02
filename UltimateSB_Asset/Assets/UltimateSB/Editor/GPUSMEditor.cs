@@ -25,7 +25,8 @@ public class GPUSMEditor : Editor
         smgOld = (SoftBodyGPU)target;
         transform = smgOld.transform;
         targetMesh = transform.GetComponent<MeshFilter>().sharedMesh;
-        targetMesh.colors = new Color[targetMesh.vertexCount];
+        if(targetMesh.colors == null || targetMesh.colors.Length == 0)
+            targetMesh.colors = new Color[targetMesh.vertexCount];
         renderer = transform.GetComponent<Renderer>();
 
         editMat = new Material[] { new Material((Shader)GetAssetByName("EditorWeightShader")) };

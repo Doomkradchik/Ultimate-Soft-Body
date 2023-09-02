@@ -247,9 +247,100 @@ MonoBehaviour:
   _camera: {fileID: 366520386}
   _cooldown: 0.63
   _prefab: {fileID: 2261793841081161796, guid: 0c218b578fdc35440b08abc7333aede5, type: 3}
-  _force: 103.8
+  _force: 259.3
   rotate: 0
   rotVelocity: 0
+--- !u!1 &381750620
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 381750623}
+  - component: {fileID: 381750622}
+  - component: {fileID: 381750621}
+  m_Layer: 0
+  m_Name: Terrain
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 2147483647
+  m_IsActive: 1
+--- !u!154 &381750621
+TerrainCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 381750620}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_TerrainData: {fileID: 15600000, guid: 2037c82597a828f45a804ba4b3e0049f, type: 2}
+  m_EnableTreeColliders: 1
+--- !u!218 &381750622
+Terrain:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 381750620}
+  m_Enabled: 1
+  serializedVersion: 6
+  m_TerrainData: {fileID: 15600000, guid: 2037c82597a828f45a804ba4b3e0049f, type: 2}
+  m_TreeDistance: 5000
+  m_TreeBillboardDistance: 50
+  m_TreeCrossFadeLength: 5
+  m_TreeMaximumFullLODCount: 50
+  m_DetailObjectDistance: 80
+  m_DetailObjectDensity: 1
+  m_HeightmapPixelError: 5
+  m_SplatMapDistance: 1000
+  m_HeightmapMaximumLOD: 0
+  m_ShadowCastingMode: 2
+  m_DrawHeightmap: 1
+  m_DrawInstanced: 0
+  m_DrawTreesAndFoliage: 1
+  m_StaticShadowCaster: 0
+  m_IgnoreQualitySettings: 0
+  m_ReflectionProbeUsage: 1
+  m_MaterialTemplate: {fileID: 10652, guid: 0000000000000000f000000000000000, type: 0}
+  m_BakeLightProbesForTrees: 1
+  m_PreserveTreePrototypeLayers: 0
+  m_DeringLightProbesForTrees: 1
+  m_ReceiveGI: 1
+  m_ScaleInLightmap: 0.0256
+  m_LightmapParameters: {fileID: 15203, guid: 0000000000000000f000000000000000, type: 0}
+  m_GroupingID: 0
+  m_RenderingLayerMask: 1
+  m_AllowAutoConnect: 1
+  m_EnableHeightmapRayTracing: 1
+  m_EnableTreesAndDetailsRayTracing: 0
+--- !u!4 &381750623
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 381750620}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -157.3, y: 0, z: -75.9}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 3
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &669772502
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -262,7 +353,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c7e34268f8bf7fa4ead0b185044ebf82, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  scaleMultiplier: 1
+  scaleMultiplier: 0.2
   physicsComputeShader: {fileID: 7200000, guid: 7078ec42a09ef88449fd01eba0184982, type: 3}
   maxCollisionsCount: 5
   maxVerticesCount: 3000
@@ -270,9 +361,9 @@ MonoBehaviour:
   syncMeshTime: 0
   continiousDetectionKind: 0
   impuseDetectionKind: 0
-  impulseDamageMultiplier: 2.36
-  impulseMinVelocity: 1.05
-  radius: 0.36
+  impulseDamageMultiplier: 10.03
+  impulseMinVelocity: 1.17
+  radius: 1.22
   materials:
   - {fileID: 8368722655750445499, guid: c674f3ce3ce18ba41838f7265d9a1af2, type: 3}
 --- !u!54 &669772503
@@ -283,7 +374,7 @@ Rigidbody:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 919132148616058754}
   serializedVersion: 4
-  m_Mass: 1
+  m_Mass: 100
   m_Drag: 0
   m_AngularDrag: 0.05
   m_CenterOfMass: {x: 0, y: 0, z: 0}
@@ -300,7 +391,7 @@ Rigidbody:
   m_UseGravity: 1
   m_IsKinematic: 0
   m_Interpolate: 0
-  m_Constraints: 126
+  m_Constraints: 0
   m_CollisionDetection: 1
 --- !u!64 &669772504
 MeshCollider:
@@ -323,7 +414,7 @@ MeshCollider:
   serializedVersion: 5
   m_Convex: 1
   m_CookingOptions: 30
-  m_Mesh: {fileID: 6329158148709259305, guid: c674f3ce3ce18ba41838f7265d9a1af2, type: 3}
+  m_Mesh: {fileID: 4068373912626513877, guid: bdeb9fa321cb6cf43a5e43b2ed776ec2, type: 3}
 --- !u!1 &1267755388
 GameObject:
   m_ObjectHideFlags: 0
@@ -479,7 +570,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 919132148616058754}
   m_LocalRotation: {x: 0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: -0, y: 0, z: 0}
+  m_LocalPosition: {x: -0, y: 1.09, z: 0}
   m_LocalScale: {x: 5, y: 5, z: 5}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -557,4 +648,4 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 919132148616058754}
-  m_Mesh: {fileID: 6329158148709259305, guid: c674f3ce3ce18ba41838f7265d9a1af2, type: 3}
+  m_Mesh: {fileID: 4068373912626513877, guid: bdeb9fa321cb6cf43a5e43b2ed776ec2, type: 3}
