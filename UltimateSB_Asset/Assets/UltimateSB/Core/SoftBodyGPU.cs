@@ -34,6 +34,7 @@ public class SoftBodyGPU : MonoBehaviour
 
 
     [HideInInspector] public Material[] materials;
+    [HideInInspector] public Color[] colors;
 
     ComputeBuffer _ROTrussesDataBuffer;
     ComputeBuffer _RONodeTInfoBuffer;
@@ -231,7 +232,7 @@ public class SoftBodyGPU : MonoBehaviour
                 trussesConnected = trussNodeInfosCount[i],
                 startPosition = vertices[i],
                 mass = 0.1f,
-                weight = m_MeshFilter.mesh.colors[i].a,
+                weight = colors[i].a,
                 normal = normals[i],
             };
         }
@@ -577,6 +578,7 @@ public class SoftBodyGPU : MonoBehaviour
             mesh.vertices = _positions;
             mesh.RecalculateNormals();
             mesh.RecalculateBounds();
+            mesh.RecalculateTangents();
             m_MeshCollider.sharedMesh = mesh;
             yield return new WaitForSeconds(syncMeshTime);
         }

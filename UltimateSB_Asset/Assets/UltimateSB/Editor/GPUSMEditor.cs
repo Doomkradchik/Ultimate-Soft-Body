@@ -31,8 +31,7 @@ public class GPUSMEditor : Editor
         editMat = new Material[] { new Material((Shader)GetAssetByName("EditorWeightShader")) };
         editMat[0].name = "edit";
 
-
-        if(transform.Find("trigger") == null)
+        if (transform.Find("trigger") == null)
         {
             GameObject gameObject = new GameObject();
             gameObject.transform.parent = transform;
@@ -52,10 +51,11 @@ public class GPUSMEditor : Editor
     {
         base.OnInspectorGUI();
 
-        if (meshFilter.sharedMesh.colors == null || meshFilter.sharedMesh.colors.Length == 0)
+        if (smgOld.colors == null || smgOld.colors.Length == 0)
         {
-            meshFilter.sharedMesh.colors = new Color[meshFilter.sharedMesh.vertexCount];
-            EditorUtility.SetDirty(meshFilter);
+            smgOld.colors = new Color[meshFilter.sharedMesh.vertexCount];
+            meshFilter.sharedMesh.colors = smgOld.colors;
+            EditorUtility.SetDirty(target);
         }
 
         physicsComputeShaderProp = serializedObject.FindProperty("physicsComputeShader");
@@ -82,6 +82,7 @@ public class GPUSMEditor : Editor
                 smgOld.materials = renderer.sharedMaterials;
                 renderer.sharedMaterials = editMat;
                 Tools.current = Tool.None;
+                meshFilter.sharedMesh.colors = smgOld.colors;
             }
         }
         else
@@ -95,35 +96,21 @@ public class GPUSMEditor : Editor
 
             if (GUILayout.Button("Set to all vertices"))
             {
-                var colors = meshFilter.sharedMesh.colors;
                 for (int i = 0; i < meshFilter.sharedMesh.vertexCount; i++)
-                    colors[i] = new Color(0, 0, 0, weight);
-                meshFilter.sharedMesh.colors = colors;
+                    smgOld.colors[i] = new Color(0, 0, 0, weight);
+                meshFilter.sharedMesh.colors = smgOld.colors;
             }
 
             if (GUILayout.Button("Stop Editing"))
             {
                 renderer.sharedMaterials = smgOld.materials;
                 Tools.current = Tool.Move;
-                EditorUtility.SetDirty(meshFilter);
+                EditorUtility.SetDirty(target);
             }
         }
 
         serializedObject.ApplyModifiedProperties();
     }
-
-    //void RecalculateColors(MeshFilter meshFilter, Color[] colors)
-    //{
-    //    if (PrefabUtility.IsPartOfAnyPrefab(meshFilter.gameObject))
-    //    {
-    //        Mesh clonedMesh = Instantiate(targetMesh);
-    //        clonedMesh.colors = colors;
-    //        targetMesh = clonedMesh;
-    //        PrefabUtility.RecordPrefabInstancePropertyModifications(meshFilter);
-
-    //        EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
-    //    }
-    //}
 
     private float brushSize = 0.1f;
     private float brushStrength = 0.5f;
@@ -176,8 +163,6 @@ public class GPUSMEditor : Editor
 
     private void EditWeights(Vector3 position)
     {
-        var colors = meshFilter.sharedMesh.colors;
-
         for (int i = 0; i < meshFilter.sharedMesh.vertexCount; i++)
         {
             Vector3 vertexPosition = transform.TransformPoint(meshFilter.sharedMesh.vertices[i]);
@@ -186,11 +171,11 @@ public class GPUSMEditor : Editor
             {
                 float normalizedDistance = 1f - (distance / brushSize);
                 var w = Mathf.Lerp(meshFilter.sharedMesh.colors[i].a, weight, normalizedDistance * brushStrength);
-                colors[i] = new Color(0, 0, 0, w);
+                smgOld.colors[i] = new Color(0, 0, 0, w);
             }
         }
 
-        meshFilter.sharedMesh.colors = colors;
+        meshFilter.sharedMesh.colors = smgOld.colors;
     }
 
     private Object GetAssetByName(string assetName)
