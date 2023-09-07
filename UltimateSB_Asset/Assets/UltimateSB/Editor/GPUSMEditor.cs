@@ -51,7 +51,7 @@ public class GPUSMEditor : Editor
     {
         base.OnInspectorGUI();
 
-        if (smgOld.colors == null || smgOld.colors.Length == 0)
+        if (smgOld.colors == null || smgOld.colors.Length == 0 || meshFilter.sharedMesh.colors.Length != smgOld.colors.Length)
         {
             smgOld.colors = new Color[meshFilter.sharedMesh.vertexCount];
             meshFilter.sharedMesh.colors = smgOld.colors;

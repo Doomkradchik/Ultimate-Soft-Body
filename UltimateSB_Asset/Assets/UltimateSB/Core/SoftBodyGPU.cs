@@ -9,6 +9,8 @@ using UnityEngine;
 public class SoftBodyGPU : MonoBehaviour
 {
     public float scaleMultiplier = 1;
+    [Tooltip("Damping for dynamic trusses. Best value 0.1 / 0.8")]
+    public float dampingTrusses = 0.1f;
 
     [HideInInspector][SerializeField] private ComputeShader physicsComputeShader;
 
@@ -144,6 +146,7 @@ public class SoftBodyGPU : MonoBehaviour
         public float damping;
         public int nodesCount;
         public int collisionType;
+        public float dampingT;
     }
 
     MeshFilter m_MeshFilter;
@@ -354,6 +357,7 @@ public class SoftBodyGPU : MonoBehaviour
             damping = DAMPING,
             nodesCount= _nodesCount,
             collisionType = (int)impuseDetectionKind,
+            dampingT = dampingTrusses
         }};
 
 
@@ -494,7 +498,7 @@ public class SoftBodyGPU : MonoBehaviour
         _ROTransfONE = new ComputeBuffer(1, sizeof(float) * 10 + sizeof(int) * 2);
 
 
-        var cStride1 = sizeof(float) * 5 + sizeof(int) * 2;
+        var cStride1 = sizeof(float) * 6 + sizeof(int) * 2;
         _otherDBuffer = new ComputeBuffer(1, cStride1, ComputeBufferType.Constant);
 
         var cStride2 = sizeof(float) * 3;

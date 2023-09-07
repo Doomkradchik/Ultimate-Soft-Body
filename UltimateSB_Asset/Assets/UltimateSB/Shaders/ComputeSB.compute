@@ -8,7 +8,7 @@
 #define MAX_FLT 10000000.0
 #define MIN_DEF 0.01
 #define MIN_PNTR 0.01
-#define DAMAGE_K 0.003
+#define DAMAGE_K 1.0
 
 struct TransfE
 {
@@ -81,6 +81,7 @@ cbuffer SimulationParams : register(b0)
      float damping;
      int nodesCount;
      int collisionType;
+     float dampingT;
 };
 
 cbuffer ICParams : register(b1)
@@ -123,7 +124,7 @@ void SimulateTruss(uint3 id : SV_DispatchThreadID)
     float3 springForce = delta * stiffness * normalize(vec);
     float3 dampingForce = normalize(vec) 
     * dot(RWNodeVelocities[pairID.x] - RWNodeVelocities[pairID.y], normalize(vec)) 
-    * damping;
+    * dampingT;
      
     RWTrussForce[idx] = springForce + dampingForce;
 }
