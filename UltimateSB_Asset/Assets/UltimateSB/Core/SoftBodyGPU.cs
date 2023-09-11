@@ -5,12 +5,15 @@ using System.Linq;
 using UnityEngine;
 
 [RequireComponent(typeof(MeshRenderer))]
-[RequireComponent(typeof(MeshFilter), typeof(MeshCollider), typeof(Rigidbody))]
+[RequireComponent(typeof(MeshFilter), typeof(MeshCollider))]
 public class SoftBodyGPU : MonoBehaviour
 {
     public float scaleMultiplier = 1;
     [Tooltip("Damping for dynamic trusses. Best value 0.1 / 0.8")]
     public float dampingTrusses = 0.1f;
+    [Tooltip("Defines surface tension force. Best value 2.0 / 25.0")]
+    [Range(0.05f, 0.9f)]
+    public float surfaceTension = 0.5f;
 
     [HideInInspector][SerializeField] private ComputeShader physicsComputeShader;
 
@@ -232,7 +235,7 @@ public class SoftBodyGPU : MonoBehaviour
         {
             nodesOther[i] = new NodeOtherData
             {
-                trussesConnected = trussNodeInfosCount[i],
+                trussesConnected = trussNodeInfosCount[i], 
                 startPosition = vertices[i],
                 mass = 0.1f,
                 weight = colors[i].a,
@@ -334,8 +337,9 @@ public class SoftBodyGPU : MonoBehaviour
     }
 
     const float AMPLITUDE = 5f;
-    const float T_STIFFNESS = 2f;
-    const float O_STIFFNESS = 20f;
+    //const float T_STIFFNESS = 2f;
+    //const float O_STIFFNESS = 20f;
+    const float STIFFNESS = 20f;
     const float DAMPING = 1f;
 
     void FillBuffers(TrussData[] trusses,
@@ -352,8 +356,8 @@ public class SoftBodyGPU : MonoBehaviour
         var otherDParams = new OtherD[] {new OtherD {
             dTime = Time.deltaTime,
             maxAmplitude = AMPLITUDE * scaleMultiplier,
-            stiffness = T_STIFFNESS,
-            stiffnessO = O_STIFFNESS,
+            stiffness = 2f * STIFFNESS * surfaceTension,
+            stiffnessO = STIFFNESS,
             damping = DAMPING,
             nodesCount= _nodesCount,
             collisionType = (int)impuseDetectionKind,

@@ -28,6 +28,7 @@ struct CCData
 
 struct RD
 {
+    float3 n;
     bool itrs;
     float dist;
 };
@@ -286,6 +287,7 @@ RD RayTR(float3 ro, float3 rd, float3 a, float3 b, float3 c, bool fo)
     float3 ba = b - a;
     float3 ca = c - a;
     float3 h = cross(rd, ca);
+    outrd.n = normalize(h);
     float det = dot(ba, h);
     if (det < epsilon && (fo || det > -epsilon)) return outrd;
     float f = 1.0 / det;
@@ -351,13 +353,14 @@ void ICMeshCalc(uint idx, float3x3 localCM, ICData icd, TransfE tre)
             RELTRANSF(tre, localCM, ROMeshVertONE[ROMeshTriONE[i + 2]])
             );
 
-        RD interRD = RayTR(RWNodePositions[idx], -10.0 * icd.cvel, 
-            trCoord[0], trCoord[1], trCoord[2], true);
+        RD interRD = RayTR(RWNodePositions[idx], -100.0 * icd.cvel, 
+            trCoord[0], trCoord[1], trCoord[2], false);
        
         if(interRD.itrs)
-        {          
-            RWNodeVelocities[idx] += icd.cvel * damMul * exp(-1.0 * interRD.dist) * DAMAGE_K;       
-            return;
+        {       
+           float3 dir = icd.cvel - 2 * dot(icd.cvel, interRD.n) * interRD.n;
+           RWNodeVelocities[idx] += dir * damMul * exp(-1000.0 * interRD.dist) * DAMAGE_K;     
+           return;
         }
     }
 }
@@ -380,7 +383,7 @@ void CCMeshCalc(uint3 id : SV_DispatchThreadID)
             RELTRANSF(data, lcm, ROMeshVertONE[ROMeshTriONE[i + 2]])
             );
 
-        cout = PointTr(RWNodePositions[id.x], trCoord[0], trCoord[1], trCoord[2], cout);
+       cout = PointTr(RWNodePositions[id.x], trCoord[0], trCoord[1], trCoord[2], cout);
        if(RayTR(RWNodePositions[id.x], float3(1000.0, 0, 0) + 0.0000001, trCoord[0], trCoord[1], trCoord[2], false).itrs)
             itrsC++;
     }
@@ -397,15 +400,17 @@ void RunIC(uint3 id : SV_DispatchThreadID)
 {
     ICData icd = ROICDataONE[0];
     TransfE tre = ROTransfONE[0];
-    if(dot(RONodeOtherData[id.x].normal, -1.0 * icd.cvel) < minVel) return;
 
     switch(collisionType)
     {
             case 0:
+                 if(dot(RONodeOtherData[id.x].normal, -1.0 * icd.cvel) < minVel) return;
                  float ad = length(icd.cpoint - RWNodePositions[id.x]);
                  RWNodeVelocities[id.x] += ad <= kind1Rad ? icd.cvel * (kind1Rad - ad) * damMul : 0;
                  break;
             case 1:
+                 //float d = dot(RWNodePositions[id.x] - icd.cpoint, normalize(icd.cvel));
+                 //if(d <= length(icd.cvel) * 1.0) return; 
                  ICMeshCalc(id.x, GetLocalCoordMatrix(tre.lrot), icd, tre);
                  break;
     }
