@@ -336,7 +336,7 @@ public class SoftBodyGPU : MonoBehaviour
     const float AMPLITUDE = 5f;
     const float T_STIFFNESS = 2f;
     const float O_STIFFNESS = 20f;
-    const float DAMPING = 0.8f;
+    const float DAMPING = 1f;
 
     void FillBuffers(TrussData[] trusses,
         Vector3[] nodesPosition, NodeOtherData[] nodesOther, TrussNodeInfo[] trussNodeInfos)

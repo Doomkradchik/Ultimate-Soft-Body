@@ -9,6 +9,7 @@
 #define MIN_DEF 0.01
 #define MIN_PNTR 0.01
 #define DAMAGE_K 1.0
+#define AMPLITUDE 1.0;
 
 struct TransfE
 {
@@ -150,11 +151,12 @@ float3 RELTRANSF(TransfE tre, float3x3 localCM, float3 p)
 
 float3 ReactTO(int index)
 {
-     float cv = maxAmplitude *  RONodeOtherData[index].weight;
      float3 vectorToOrigin = RWStiffnesPoints[index] - RWNodePositions[index];
      float distance = length(vectorToOrigin);
      if(distance == 0) return 0;
 
+    // float cv = maxAmplitude * length(RWStiffnesPoints[index] - RONodeOtherData[index].startPosition) *  RONodeOtherData[index].weight;
+    float cv = maxAmplitude *  RONodeOtherData[index].weight;
      float offsetMagnitude = distance <= cv ? 0 : distance - cv;
      RWStiffnesPoints[index] -= normalize(vectorToOrigin) * offsetMagnitude; 
 
@@ -162,8 +164,8 @@ float3 ReactTO(int index)
         * dot(RWNodeVelocities[index], normalize(vectorToOrigin)) 
         * damping;
 
-      float3 toOR = RWNodePositions[index] - RONodeOtherData[index].startPosition;   
-     RWNodePositions[index] = length(toOR) > 1.0 ? RONodeOtherData[index].startPosition + normalize(toOR) * 1.0 : RWNodePositions[index];
+     //float3 toOR = RWNodePositions[index] - RONodeOtherData[index].startPosition;   
+     ////RWNodePositions[index] = length(toOR) > 1.0 ? RONodeOtherData[index].startPosition + normalize(toOR) * 1.0 : RWNodePositions[index];
      return (normalize(vectorToOrigin) * stiffnessO * distance - dampingForce) * (1.1 - RONodeOtherData[index].weight);
 }
 
@@ -411,7 +413,7 @@ void RunIC(uint3 id : SV_DispatchThreadID)
 
 void UPD(CCOUT dc, uint idx)
 {
-    if(dc.coll) //&& length(dc.t - RWNodePositions[id.x]) > MIN_PNTR)
+    if(dc.coll && length(dc.t - RWNodePositions[idx]) > MIN_PNTR)
         {
              RWNodePositions[idx] = dc.t;
              RWNodeVelocities[idx] = 0;
