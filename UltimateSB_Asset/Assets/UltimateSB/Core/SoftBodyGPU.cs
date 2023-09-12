@@ -5,7 +5,7 @@ using System.Linq;
 using UnityEngine;
 
 [RequireComponent(typeof(MeshRenderer))]
-[RequireComponent(typeof(MeshFilter), typeof(MeshCollider))]
+[RequireComponent(typeof(MeshFilter))]
 public class SoftBodyGPU : MonoBehaviour
 {
     public float scaleMultiplier = 1;
