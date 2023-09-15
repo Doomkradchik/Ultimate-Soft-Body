@@ -21,9 +21,6 @@ public class SoftBodyGPU : MonoBehaviour
     public int maxVerticesCount = 3000;
     public int maxTrianglesCount = 10000;
 
-    [Range(0f, 1f)]
-    public float syncMeshTime = 0f;
-
     public ContiniousDetectionKind continiousDetectionKind;
 
 
@@ -37,6 +34,8 @@ public class SoftBodyGPU : MonoBehaviour
     private int _trussesCount;
     private int _nodesCount;
 
+
+    Mesh _mesh;
 
     [HideInInspector] public Material[] materials;
     [HideInInspector] public Color[] colors;
@@ -171,10 +170,11 @@ public class SoftBodyGPU : MonoBehaviour
         m_MeshFilter = GetComponent<MeshFilter>();
         m_MeshCollider = GetComponent<MeshCollider>();
 
+        _mesh = m_MeshFilter.mesh;
 
-        var normals = m_MeshFilter.mesh.normals;
-        var vertices = m_MeshFilter.mesh.vertices;
-        var triangles = m_MeshFilter.mesh.triangles;
+        var normals = _mesh.normals;
+        var vertices = _mesh.vertices;
+        var triangles = _mesh.triangles;
 
         _nodesCount = vertices.Length;
 
@@ -252,7 +252,6 @@ public class SoftBodyGPU : MonoBehaviour
 
     const int MAX_TRUSSES = 20736;
     void FixedUpdate() => GPUUpdate();
-    void Start() => StartCoroutine(UpdateMeshRoutine());
 
 
     void OnDestroy()
@@ -576,20 +575,16 @@ public class SoftBodyGPU : MonoBehaviour
         }
 
         _RWNodePositionsBuffer.GetData(_positions);
+        UpdateMesh();
     }
 
-    IEnumerator UpdateMeshRoutine()
+    void UpdateMesh()
     {
-        while (true)
-        {
-            var mesh = m_MeshFilter.mesh;
-            mesh.vertices = _positions;
-            mesh.RecalculateNormals();
-            mesh.RecalculateBounds();
-            mesh.RecalculateTangents();
-            m_MeshCollider.sharedMesh = mesh;
-            yield return new WaitForSeconds(syncMeshTime);
-        }
+        _mesh.vertices = _positions;
+        _mesh.RecalculateNormals();
+        _mesh.RecalculateBounds();
+        _mesh.RecalculateTangents();
+        m_MeshFilter.mesh = _mesh;
     }
 
     bool HasPair(List<TrussData> trusses, int leftIndex, int rightIndex)

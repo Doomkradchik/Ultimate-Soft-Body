@@ -67,6 +67,13 @@
       "dependencies": {},
       "url": "https://packages.unity.com"
     },
+    "com.unity.robotics.vhacd": {
+      "version": "https://github.com/Unity-Technologies/VHACD.git?path=/com.unity.robotics.vhacd",
+      "depth": 0,
+      "source": "git",
+      "dependencies": {},
+      "hash": "854b3d820901804c338365c63f067ad7f1c4b9c0"
+    },
     "com.unity.settings-manager": {
       "version": "2.0.1",
       "depth": 2,
