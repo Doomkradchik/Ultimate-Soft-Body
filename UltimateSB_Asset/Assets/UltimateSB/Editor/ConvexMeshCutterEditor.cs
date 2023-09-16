@@ -31,46 +31,75 @@ public class ConvexMeshCutterEditor : Editor
     private void OnEnable()
     {
         convexMeshCutter = target as ConvexMeshCutter;
+        serializedObject.FindProperty("vertexConverter").objectReferenceValue = AssetProvider.GetAssetByName("VertexConverter");
+        serializedObject.ApplyModifiedProperties();
     }
+
 
     public override void OnInspectorGUI()
     {
         base.OnInspectorGUI();
 
-        if(GUILayout.Button("Cut Into Colliders"))
+        if (GUILayout.Button("Cut Into Colliders"))
         {
-            var segments = CutToSegments(convexMeshCutter.GetComponent<MeshFilter>().sharedMesh, convexMeshCutter.cuts);
-            InitColliders(segments);
+            var mesh = convexMeshCutter.GetComponent<MeshFilter>().sharedMesh;
+            var segments = CutToSegments(mesh, convexMeshCutter.cuts);
+            InitColliders(segments, mesh.vertices);
         }
+
     }
 
-    private void InitColliders(Mesh[] segments)
+    private void InitColliders(List<int[]> segments, Vector3[] vertices)
     {
         var poolGM = ConvexPool;
-
-        for (int i = 0; i < segments.Length; i++)
+        convexMeshCutter.convexPairs = new ConvexDataPair[segments.Count];
+        for (int i = 0; i < segments.Count; i++)
         {
             var collider = poolGM.AddComponent<MeshCollider>();
             collider.convex = true;
-            collider.sharedMesh = segments[i];
+            var instanceMesh = new Mesh();
+            instanceMesh.vertices = ConvertToVertices(segments[i], vertices);
+            collider.sharedMesh = instanceMesh;
+            convexMeshCutter.convexPairs[i] = new ConvexDataPair { 
+            meshCollider = collider,
+            indexes = segments[i]
+            };
         }
+
+        EditorUtility.SetDirty(target);
+        serializedObject.ApplyModifiedProperties();
     }
 
-    void Append(Dictionary<Vector3Int, List<Vector3>> pairs, Vector3Int c, Vector3 pos)
+    Vector3[] ConvertToVertices(int[] indexes, Vector3[] vertices)
     {
-        if (pairs.ContainsKey(c))
-            pairs[c].Add(pos);
-        else
-            pairs.Add(c, new List<Vector3> { pos });
+        var res = new List<Vector3>();
+        for (int i = 0; i < indexes.Length; i++)
+        {
+            res.Add(vertices[indexes[i]]);
+        }
+        return res.ToArray();
     }
 
-    Mesh[] CutToSegments(Mesh target, Vector3Int cuts)
+    void Append(Dictionary<Vector3Int, List<int>> pairs, Vector3Int c, int i)
+    {
+        if (pairs.ContainsKey(c) == false)
+        {
+            pairs.Add(c, new List<int> { i });
+            return;
+        }
+
+        if (pairs[c].Contains(i) == false)
+            pairs[c].Add(i);
+           
+    }
+
+    List<int[]> CutToSegments(Mesh target, Vector3Int cuts)
     {
         if (target is null)
             return null;
         target.RecalculateBounds();
         var voxelSize = target.bounds.size.DivideBy(cuts + Vector3Int.one);
-        var cutVertices = new Dictionary<Vector3Int, List<Vector3>>();
+        var cutVertices = new Dictionary<Vector3Int, List<int>>();
         var result = new List<Mesh>();
 
         for (int i = 0; i < target.triangles.Length - 2; i += 3)
@@ -79,34 +108,33 @@ public class ConvexMeshCutterEditor : Editor
             var c2 = CalculateCoord(target.vertices[target.triangles[i + 1]] + target.bounds.extents, voxelSize, cuts);
             var c3 = CalculateCoord(target.vertices[target.triangles[i + 2]] + target.bounds.extents, voxelSize, cuts);
 
-            Append(cutVertices, c1, target.vertices[target.triangles[i]]);
-            Append(cutVertices, c1, target.vertices[target.triangles[i + 1]]);
-            Append(cutVertices, c1, target.vertices[target.triangles[i + 2]]);
+            Append(cutVertices, c1, target.triangles[i]);
+            Append(cutVertices, c1, target.triangles[i]);
+            Append(cutVertices, c1, target.triangles[i]);
 
             if (c2 != c1)
             {
-                Append(cutVertices, c2, target.vertices[target.triangles[i]]);
-                Append(cutVertices, c2, target.vertices[target.triangles[i + 1]]);
-                Append(cutVertices, c2, target.vertices[target.triangles[i + 2]]);
+                Append(cutVertices, c2, target.triangles[i]);
+                Append(cutVertices, c2, target.triangles[i]);
+                Append(cutVertices, c2, target.triangles[i]);
             }
 
             if (c3 != c1 && c3 != c2)
             {
-                Append(cutVertices, c3, target.vertices[target.triangles[i]]);
-                Append(cutVertices, c3, target.vertices[target.triangles[i + 1]]);
-                Append(cutVertices, c3, target.vertices[target.triangles[i + 2]]);
+                Append(cutVertices, c2, target.triangles[i]);
+                Append(cutVertices, c2, target.triangles[i]);
+                Append(cutVertices, c2, target.triangles[i]);
             }
         }
 
+        List<int[]> res = new List<int[]>();
         foreach (var pair in cutVertices)
         {
             if (pair.Value.Count < 3) { continue; }
-            var instanceMesh = new Mesh();
-            instanceMesh.vertices = pair.Value.ToArray();
-            result.Add(instanceMesh);
+            res.Add(pair.Value.ToArray());
         }
 
-        return result.ToArray();
+        return res;
     }
 
 

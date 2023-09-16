@@ -1,0 +1,11 @@
+#pragma kernel Convert
+
+StructuredBuffer<int> ID: register(t0);
+StructuredBuffer<float3> InputV: register(t1);
+RWStructuredBuffer<float3> ResultV : register(u0);
+
+[numthreads(64,1,1)]
+void Convert (uint3 id : SV_DispatchThreadID)
+{
+    ResultV[id.x] = InputV[ID[id.x]];
+}

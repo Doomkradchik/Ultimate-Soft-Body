@@ -28,7 +28,7 @@ public class GPUSMEditor : Editor
         meshFilter = transform.GetComponent<MeshFilter>();
         renderer = transform.GetComponent<Renderer>();
 
-        editMat = new Material[] { new Material((Shader)GetAssetByName("EditorWeightShader")) };
+        editMat = new Material[] { new Material((Shader)AssetProvider.GetAssetByName("EditorWeightShader")) };
         editMat[0].name = "edit";
 
         if (transform.Find("trigger") == null)
@@ -59,7 +59,7 @@ public class GPUSMEditor : Editor
         }
 
         physicsComputeShaderProp = serializedObject.FindProperty("physicsComputeShader");
-        physicsComputeShaderProp.objectReferenceValue = GetAssetByName("ComputeSB");
+        physicsComputeShaderProp.objectReferenceValue = AssetProvider.GetAssetByName("ComputeSB");
         var icKindStatus = (SoftBodyGPU.ImpulseDetectionKind)icKindProp.enumValueIndex;
 
         if (icKindStatus == SoftBodyGPU.ImpulseDetectionKind.Sphere)
@@ -177,8 +177,12 @@ public class GPUSMEditor : Editor
 
         meshFilter.sharedMesh.colors = smgOld.colors;
     }
+}
 
-    private Object GetAssetByName(string assetName)
+
+public static class AssetProvider
+{
+    public static Object GetAssetByName(string assetName)
     {
         string[] assetGuids = AssetDatabase.FindAssets(assetName);
         if (assetGuids.Length > 0)
