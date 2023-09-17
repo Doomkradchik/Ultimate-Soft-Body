@@ -32,7 +32,11 @@ public class ConvexMeshCutter : MonoBehaviour
             cutVertexIndexes.Add(pair.meshCollider, pair.indexes);
     }
 
-   /// public void UpdateLocalVertices(Vector3[] vertices, )
+    public void UpdateLocalVerticesSegmentColliders(Vector3[] vertices, int[] localIndexes)
+    {
+        throw new System.NotImplementedException();
+    }
+
 
     public void UpdateAllColliderVertices(Vector3[] vertices)
     {

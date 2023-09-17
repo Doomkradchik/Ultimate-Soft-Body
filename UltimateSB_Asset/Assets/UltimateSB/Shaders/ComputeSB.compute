@@ -59,6 +59,11 @@ struct CCOUT
     float ml;
 };
 
+struct ICOUT{
+    bool det;
+    float3 vel;
+};
+
 struct NodeOtherData
 {
     int trussesConnected;
@@ -114,6 +119,8 @@ RWStructuredBuffer<float3> RWNodeVelocities: register(u2);
 RWStructuredBuffer<float3> RWTrussForce: register(u3);
 RWStructuredBuffer<float> RWNodeStiffnessLengthTO: register(u4);
 RWStructuredBuffer<float3> RWStiffnesPoints : register(u6); // init in start
+
+RWStructuredBuffer<int>  RW_CVertID: register(u7);
 
 [numthreads(8,8,1)]
 void SimulateTruss(uint3 id : SV_DispatchThreadID)
@@ -343,8 +350,12 @@ float3x3 GetLocalCoordMatrix(float4 rot)
         );
 }
 
-void ICMeshCalc(uint idx, float3x3 localCM, ICData icd, TransfE tre)
+ICOUT ICMeshCalc(uint idx, float3x3 localCM, ICData icd, TransfE tre)
 {
+    ICOUT rout;
+    rout.det = false;
+    rout.vel = 0;
+
     for(uint i = 0; i < tre.trianglesCount; i +=3)
     {
         float3x3 trCoord = float3x3(
@@ -359,10 +370,25 @@ void ICMeshCalc(uint idx, float3x3 localCM, ICData icd, TransfE tre)
         if(interRD.itrs)
         {       
            float3 dir = icd.cvel - 2 * dot(icd.cvel, interRD.n) * interRD.n;
-           RWNodeVelocities[idx] += dir * damMul * exp(-1000.0 * interRD.dist) * DAMAGE_K;     
-           return;
+           rout.vel = dir * damMul * exp(-1000.0 * interRD.dist) * DAMAGE_K;     
+           rout.det = true;
+           return rout;
         }
     }
+
+    return rout;
+}
+
+ICOUT ICSphereCalc(uint idx, ICData icd)
+{
+    ICOUT rout;
+    rout.det = false;
+    rout.vel = 0;
+    if(dot(RONodeOtherData[idx].normal, -1.0 * icd.cvel) < minVel) return rout;
+    float ad = length(icd.cpoint - RWNodePositions[idx]);
+    rout.vel = ad <= kind1Rad ? icd.cvel * (kind1Rad - ad) * damMul : 0;
+    rout.det = true;
+    return rout;
 }
 
 [numthreads(256,1,1)] 
@@ -388,11 +414,15 @@ void CCMeshCalc(uint3 id : SV_DispatchThreadID)
             itrsC++;
     }
 
-    if(itrsC % 2 == 1)
+    if(itrsC % 2 == 1) 
 	{
          RWNodePositions[id.x] = cout.t;
          RWNodeVelocities[id.x] = 0;
     }
+}
+
+void SegmentDef(){
+
 }
 
 [numthreads(256,1,1)] 
@@ -401,18 +431,22 @@ void RunIC(uint3 id : SV_DispatchThreadID)
     ICData icd = ROICDataONE[0];
     TransfE tre = ROTransfONE[0];
 
+    ICOUT res;
+    res.det = false;
+    res.vel = 0;
+
     switch(collisionType)
     {
             case 0:
-                 if(dot(RONodeOtherData[id.x].normal, -1.0 * icd.cvel) < minVel) return;
-                 float ad = length(icd.cpoint - RWNodePositions[id.x]);
-                 RWNodeVelocities[id.x] += ad <= kind1Rad ? icd.cvel * (kind1Rad - ad) * damMul : 0;
+                 res = ICSphereCalc(id.x, icd);
                  break;
             case 1:
-                 //float d = dot(RWNodePositions[id.x] - icd.cpoint, normalize(icd.cvel));
-                 //if(d <= length(icd.cvel) * 1.0) return; 
-                 ICMeshCalc(id.x, GetLocalCoordMatrix(tre.lrot), icd, tre);
+                 res = ICMeshCalc(id.x, GetLocalCoordMatrix(tre.lrot), icd, tre);
                  break;
+    }
+
+    if(res.det){
+        RWNodeVelocities[id.x] += res.vel;
     }
 }
 

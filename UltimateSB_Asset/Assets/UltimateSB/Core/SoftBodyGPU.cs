@@ -574,7 +574,7 @@ public class SoftBodyGPU : MonoBehaviour
         ///TEST
         ///
         if(Input.GetKeyDown(KeyCode.Space))
-            m_MeshCutter.UpdateAllColliderVertices(_positions);
+        m_MeshCutter.UpdateAllColliderVertices(_positions);
     }
 
     void UpdateMesh()
