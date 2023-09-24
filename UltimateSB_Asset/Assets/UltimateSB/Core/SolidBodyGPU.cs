@@ -1,21 +1,27 @@
-using System;
 using System.Collections;
-using System.Collections.Generic;
 using System.Linq;
+using System.Collections.Generic;
 using UnityEngine;
 
-[RequireComponent(typeof(MeshRenderer))]
-[RequireComponent(typeof(MeshFilter),typeof(ConvexMeshCutter))]
-public class SoftBodyGPU : MonoBehaviour
+
+[System.Serializable]
+struct OtherFSB
+{
+    public float dTime;
+    public float stiffnessT;
+    public int nodesCount;
+    public int collisionType;
+}
+
+[RequireComponent(typeof(ConvexMeshCutter))]
+public class SolidBodyGPU : MonoBehaviour
 {
     public float scaleMultiplier = 1;
-    [Tooltip("Damping for dynamic trusses. Best value 0.1 / 0.8")]
-    public float dampingTrusses = 0.1f;
     [Tooltip("Defines surface tension force. Best value 2.0 / 25.0")]
     [Range(0.05f, 0.9f)]
     public float surfaceTension = 0.5f;
 
-    [HideInInspector][SerializeField] private ComputeShader physicsComputeShader;
+    [SerializeField] private ComputeShader physicsComputeShader;
 
     public int maxCollisionsCount = 5;
     public int maxVerticesCount = 3000;
@@ -24,50 +30,59 @@ public class SoftBodyGPU : MonoBehaviour
     public ContiniousDetectionKind continiousDetectionKind;
 
 
+    const float COLL_AMPLITRUDE = 1.1f;
+
     [Header("Impulse collision properties")]
     public ImpulseDetectionKind impuseDetectionKind;
 
-    [HideInInspector][SerializeField] internal float impulseDamageMultiplier = 1;
-    [HideInInspector][SerializeField] internal float impulseMinVelocity = 0;
-    [HideInInspector][SerializeField] internal float radius = 1f;
+    [SerializeField] internal float impulseDamageMultiplier = 1;
+    [SerializeField] internal float impulseMinVelocity = 0;
+    [SerializeField] internal float radius = 1f;
 
-    private int _trussesCount;
     private int _nodesCount;
 
 
     Mesh _mesh;
 
-    [HideInInspector] public Material[] materials;
-    [HideInInspector] public Color[] colors;
-
-    ComputeBuffer _ROTrussesDataBuffer;
-    ComputeBuffer _RONodeTInfoBuffer;
     ComputeBuffer _RONodeOtherDataBuffer;
-    ComputeBuffer _RWTotalDForceBufer;
     ComputeBuffer _RWNodePositionsBuffer;
     ComputeBuffer _RWNodeVelocitiesBuffer;
-    ComputeBuffer _RWTrussForceBuffer;
-    ComputeBuffer _RWNodeStiffnessLengthTO;
+
     ComputeBuffer _otherDBuffer;
     ComputeBuffer _ICParamsConstBuffer;
     ComputeBuffer _ROCCDataBuffer;
     ComputeBuffer _ROCCCounterBuffer;
-    ComputeBuffer _RWStiffnesPointsBuffer;
     ComputeBuffer _ROICDataONE;
     ComputeBuffer _ROMeshVertONE;
     ComputeBuffer _ROMeshTriONE;
     ComputeBuffer _ROTransfONE;
-    ComputeBuffer _Diagnostics;
+
+
+    ComputeBuffer _RWOriginNodes;
+    ComputeBuffer _ROOriginOthers;
+    
 
     MeshFilter m_MeshFilter;
     ConvexMeshCutter m_MeshCutter;
 
-    int _maxTrussesConnectionInNode;
 
     Vector3[] _positions;
     ICData[] _icData;
     TransfE[] _trDataONE;
     CCData[] _ccDatas;
+
+    Vector3[] _originPos;
+
+    Mesh _originMesh;
+
+    //[System.Serializable]
+    //struct VertInterData
+    //{
+    //    public Vector3Int anch3index;
+    //    public Vector3 anch3weight;
+    //}
+
+
 
     void Awake()
     {
@@ -78,141 +93,93 @@ public class SoftBodyGPU : MonoBehaviour
         m_MeshFilter = GetComponent<MeshFilter>();
         m_MeshCutter = GetComponent<ConvexMeshCutter>();
 
-        _mesh = m_MeshFilter.mesh;
-
-        var normals = _mesh.normals;
-        var vertices = _mesh.vertices;
-        var triangles = _mesh.triangles;
-
-        _nodesCount = vertices.Length;
-
+     
+        _originMesh = m_MeshFilter.mesh;
+        _originPos = _originMesh.vertices;
+        _originCount = _originMesh.vertexCount;
+        _mesh = m_MeshCutter.target;
+        _nodesCount = _mesh.vertexCount;
+        var vertices = m_MeshCutter.target.vertices;
         var nodesOther = new NodeOtherData[_nodesCount];
+        //var vertInterDatas = new VertInterData[_nodesCount];
 
-        var listTrusses = new List<TrussData>();
-        var trussNodeInfosCount = new int[_nodesCount];
-        for (int i = 0; i < triangles.Length - 1; i++)
-            if (HasPair(listTrusses, triangles[i], triangles[i + 1]) == false)
-            {
-                listTrusses.Add(
-                    new TrussData
-                    {
-                        indexPair = new Vector2Int(triangles[i], triangles[i + 1]),
-                        restLength = (vertices[triangles[i]] - vertices[triangles[i + 1]]).magnitude
-                    });
-
-                trussNodeInfosCount[triangles[i]]++;
-                trussNodeInfosCount[triangles[i + 1]]++;
-            }
-
-        _trussesCount = listTrusses.Count;
-
-        if (_trussesCount > MAX_TRUSSES)
-        {
-            Debug.LogError($"Noticed {_trussesCount} trusses. The number of trusses should be less than 20736. Use mesh with less triagles and vertices!");
-            return;
-        }
-
-        var trusses = listTrusses.ToArray();
-        _maxTrussesConnectionInNode = trussNodeInfosCount.Max();
-        var trussNodeInfos = new TrussNodeInfo[_nodesCount * _maxTrussesConnectionInNode];
-        var lastTrussNodeInfoIndex = new int[_nodesCount];
-
-
-        for (int i = 0; i < _trussesCount; i++)
-        {
-            var idLeft = trusses[i].indexPair.x;
-            var idRight = trusses[i].indexPair.y;
-
-            trussNodeInfos[idLeft + _nodesCount * lastTrussNodeInfoIndex[idLeft]] = new TrussNodeInfo
-            {
-                trussID = i,
-                right = -1
-            };
-
-            trussNodeInfos[idRight + _nodesCount * lastTrussNodeInfoIndex[idRight]] = new TrussNodeInfo
-            {
-                trussID = i,
-                right = 1
-            };
-
-            lastTrussNodeInfoIndex[idLeft]++;
-            lastTrussNodeInfoIndex[idRight]++;
-        }
+        _mesh.RecalculateNormals();
+        var normals = _mesh.normals;
+        var originOthers = new NodeOtherData[_originCount];
 
         for (int i = 0; i < _nodesCount; i++)
         {
             nodesOther[i] = new NodeOtherData
             {
-                trussesConnected = trussNodeInfosCount[i], 
+                trussesConnected = 0,
                 startPosition = vertices[i],
                 mass = 0.1f,
-                weight = colors[i].a,
+                weight = 0f,
                 normal = normals[i],
             };
         }
 
-        InitializeBuffers();
-        FillBuffers(trusses, vertices,
-            nodesOther, trussNodeInfos);
-       m_MeshCutter.Init(_mesh.vertexCount);
+        for (int i = 0; i < _originMesh.vertexCount; i++)
+        {
+            originOthers[i] = new NodeOtherData
+            {
+                trussesConnected = 0,
+                startPosition = _originMesh.vertices[i],
+                mass = 0.1f,
+                weight = 0f,
+                normal = _originMesh.normals[i],
+            };
+        }
 
-        Debug.Log($"Body initialized successfully: {_nodesCount} nodes, {_trussesCount} trusses");
+        
+
+
+
+
+        m_MeshCutter.Init(_nodesCount);
+        InitializeBuffers();
+        FillBuffers(vertices, nodesOther, originOthers);
+
+        Debug.Log($"Body initialized successfully: {_originCount} nodes");
     }
 
-    const int MAX_TRUSSES = 20736;
     void FixedUpdate() => GPUUpdate();
 
 
     void OnDestroy()
     {
-        _ROTrussesDataBuffer.Release();
-        _RONodeTInfoBuffer.Release();
         _RONodeOtherDataBuffer.Release();
-        _RWTotalDForceBufer.Release();
         _RWNodePositionsBuffer.Release();
         _RWNodeVelocitiesBuffer.Release();
-        _RWTrussForceBuffer.Release();
-        _RWNodeStiffnessLengthTO.Release();
         _otherDBuffer.Release();
         _ICParamsConstBuffer.Release();
         _ROCCDataBuffer.Release();
         _ROCCCounterBuffer.Release();
-        _RWStiffnesPointsBuffer.Release();
         _ROICDataONE.Release();
 
         _ROMeshVertONE.Release();
         _ROMeshTriONE.Release();
         _ROTransfONE.Release();
-        _Diagnostics.Release();
 
-        _ROTrussesDataBuffer.Dispose();
-        _RONodeTInfoBuffer.Dispose();
         _RONodeOtherDataBuffer.Dispose();
-        _RWTotalDForceBufer.Dispose();
         _RWNodePositionsBuffer.Dispose();
         _RWNodeVelocitiesBuffer.Dispose();
-        _RWTrussForceBuffer.Dispose();
-        _RWNodeStiffnessLengthTO.Dispose();
         _otherDBuffer.Dispose();
         _ICParamsConstBuffer.Dispose();
         _ROCCDataBuffer.Dispose();
         _ROCCCounterBuffer.Dispose();
-        _RWStiffnesPointsBuffer.Dispose();
         _ROICDataONE.Dispose();
 
         _ROMeshVertONE.Dispose();
         _ROMeshTriONE.Dispose();
         _ROTransfONE.Dispose();
-        _Diagnostics.Dispose();
     }
 
-
-    int m_SimulateTrussKarnelID { get { return physicsComputeShader.FindKernel("SimulateTruss"); } }
-    int m_HashTrussForcesID { get { return physicsComputeShader.FindKernel("HashTrussForces"); } }
-    int m_SimulateNodeID { get { return physicsComputeShader.FindKernel("SimulateNode"); } }
+    int m_NodeInterpolation { get { return physicsComputeShader.FindKernel("NodeInter"); } }
+    int m_FSBSimulateNodeID { get { return physicsComputeShader.FindKernel("FSBSimulateNode"); } }
     int m_RunCCID { get { return physicsComputeShader.FindKernel("RunCC"); } }
     int m_RunICID { get { return physicsComputeShader.FindKernel("RunIC"); } }
-    int m_CCMeshCalcID { get { return physicsComputeShader.FindKernel("CCMeshCalc"); } }
+    int m_CCMeshCalcID { get { return physicsComputeShader.FindKernel("CCMeshCalc"); } } //NodeInter
 
     void Subscribe(Collider other)
     {
@@ -221,6 +188,7 @@ public class SoftBodyGPU : MonoBehaviour
         else
             _cccolliders.Add(other);
     }
+
 
 
     void Unsubscribe(Collider other)
@@ -238,34 +206,23 @@ public class SoftBodyGPU : MonoBehaviour
         return _collisionsCount;
     }
 
-    const float AMPLITUDE = 5f;
-    //const float T_STIFFNESS = 2f;
-    //const float O_STIFFNESS = 20f;
     const float STIFFNESS = 20f;
-    const float DAMPING = 1f;
 
-    void FillBuffers(TrussData[] trusses,
-        Vector3[] nodesPosition, NodeOtherData[] nodesOther, TrussNodeInfo[] trussNodeInfos)
+    void FillBuffers(Vector3[] nodesPosition, NodeOtherData[] nodeOtherDatas, NodeOtherData[] originOthers)
     {
         _collisionsCount = new int[1];
         _positions = nodesPosition;
+        _ROOriginOthers.SetData(originOthers);
+        _RWOriginNodes.SetData(_originPos);
+        _RONodeOtherDataBuffer.SetData(nodeOtherDatas);
         _RWNodePositionsBuffer.SetData(nodesPosition);
-        _RONodeOtherDataBuffer.SetData(nodesOther);
-        _RONodeTInfoBuffer.SetData(trussNodeInfos);
-        _ROTrussesDataBuffer.SetData(trusses);
-        _RWStiffnesPointsBuffer.SetData(nodesPosition);
 
         var otherDParams = new OtherD[] {new OtherD {
             dTime = Time.deltaTime,
-            maxAmplitude = AMPLITUDE * scaleMultiplier,
             stiffness = 2f * STIFFNESS * surfaceTension,
-            stiffnessO = STIFFNESS,
-            damping = DAMPING,
             nodesCount= _nodesCount,
             collisionType = (int)impuseDetectionKind,
-            dampingT = dampingTrusses
         }};
-
 
         var icParamsArr = new ICParams[] { new ICParams{
             damageMultiplier = impulseDamageMultiplier,
@@ -288,8 +245,6 @@ public class SoftBodyGPU : MonoBehaviour
 
     void RecalculateCollisionData()
     {
-        if (_cccolliders.Count == 0) { return; }
-
         for (int i = 0; i < _cccolliders.Count; i++)
             _ccDatas[i] = RefreshCCollisionData(_cccolliders[i]);
 
@@ -310,14 +265,8 @@ public class SoftBodyGPU : MonoBehaviour
     const float DAMAGE_RATIO = 0.2f;
     const float RAD_RATIO = 1.25f;
 
-
     void OnCollisionEnter(Collision collision)
     {
-        Debug.Log("FAEFAFAEF");
-
-        if (collision.relativeVelocity.magnitude < impulseMinVelocity)
-            return;
-
         _icData[0] = new ICData
         {
             cpoint = transform.InverseTransformPoint(collision.contacts[0].point),
@@ -335,11 +284,6 @@ public class SoftBodyGPU : MonoBehaviour
         physicsComputeShader.Dispatch(m_RunICID, Extensions.GetLength(_nodesCount, 256), 1, 1);
     }
 
-    void OnCollisionExit(Collision collision)
-    {
-        Debug.Log("OOOOO");
-    }
-
     void OnTriggerEnter(Collider other) => Subscribe(other);
     void OnTriggerExit(Collider other) => Unsubscribe(other);
 
@@ -352,7 +296,7 @@ public class SoftBodyGPU : MonoBehaviour
         foreach (var mc in _ccmeshColliders)
         {
             SetMeshDataProperty(mc);
-            physicsComputeShader.Dispatch(m_CCMeshCalcID,Extensions.GetLength(_nodesCount, 256), 1, 1);
+            physicsComputeShader.Dispatch(m_CCMeshCalcID, Extensions.GetLength(_nodesCount, 256), 1, 1);
         }
     }
 
@@ -370,7 +314,7 @@ public class SoftBodyGPU : MonoBehaviour
         {
             colliderType = (int)GetColliderType(collider, out var center),
             lpos = transform.InverseTransformPoint(collider.transform.TransformPoint(center)),
-            lscale = collider.transform.localScale * .5f * scaleMultiplier,
+            lscale = collider.transform.localScale * .5f * scaleMultiplier * COLL_AMPLITRUDE, 
             lrot = Quaternion.Inverse(transform.rotation) * collider.transform.rotation,
             trianglesCount = triCount,
         };
@@ -391,21 +335,21 @@ public class SoftBodyGPU : MonoBehaviour
             center = sc.center;
             return ColliderType.Sphere;
         }
-        
+
         return ColliderType.Undefined;
     }
 
+    int _originCount = 0;
+
     void InitializeBuffers()
     {
-        _ROTrussesDataBuffer = new ComputeBuffer(_trussesCount, sizeof(int) * 2 + sizeof(float));
-        _RONodeTInfoBuffer = new ComputeBuffer(_nodesCount * _maxTrussesConnectionInNode, sizeof(int) * 2);
         _RONodeOtherDataBuffer = new ComputeBuffer(_nodesCount, sizeof(float) * 8 + sizeof(int));
-
-        _RWTotalDForceBufer = new ComputeBuffer(_nodesCount, sizeof(float) * 3);
         _RWNodePositionsBuffer = new ComputeBuffer(_nodesCount, sizeof(float) * 3);
         _RWNodeVelocitiesBuffer = new ComputeBuffer(_nodesCount, sizeof(float) * 3);
-        _RWTrussForceBuffer = new ComputeBuffer(_trussesCount, sizeof(float) * 3);
-        _RWNodeStiffnessLengthTO = new ComputeBuffer(_nodesCount, sizeof(float));
+
+
+        _RWOriginNodes = new ComputeBuffer(_originCount, sizeof(float) * 3);
+        _ROOriginOthers = new ComputeBuffer(_originCount, sizeof(float) * 8 + sizeof(int));
 
         _ROCCDataBuffer = new ComputeBuffer(maxCollisionsCount, sizeof(float) * 11 + sizeof(int) * 2);
         _ROCCCounterBuffer = new ComputeBuffer(1, sizeof(int));
@@ -421,26 +365,10 @@ public class SoftBodyGPU : MonoBehaviour
 
         var cStride2 = sizeof(float) * 3;
         _ICParamsConstBuffer = new ComputeBuffer(1, cStride2, ComputeBufferType.Constant);
-
-        _Diagnostics = new ComputeBuffer(_nodesCount, sizeof(float) * 3);
-        _RWStiffnesPointsBuffer = new ComputeBuffer(_nodesCount, sizeof(float) * 3);
-
-        physicsComputeShader.SetBuffer(m_SimulateTrussKarnelID, "ROTrussesData", _ROTrussesDataBuffer);
-        physicsComputeShader.SetBuffer(m_SimulateTrussKarnelID, "RWNodePositions", _RWNodePositionsBuffer);
-        physicsComputeShader.SetBuffer(m_SimulateTrussKarnelID, "RWNodeVelocities", _RWNodeVelocitiesBuffer);
-        physicsComputeShader.SetBuffer(m_SimulateTrussKarnelID, "RWTrussForce", _RWTrussForceBuffer);
-
-        physicsComputeShader.SetBuffer(m_HashTrussForcesID, "RONodeOtherData", _RONodeOtherDataBuffer);
-        physicsComputeShader.SetBuffer(m_HashTrussForcesID, "RONodeTInfo", _RONodeTInfoBuffer);
-        physicsComputeShader.SetBuffer(m_HashTrussForcesID, "RWTrussForce", _RWTrussForceBuffer);
-        physicsComputeShader.SetBuffer(m_HashTrussForcesID, "TotalDForce", _RWTotalDForceBufer);
-
-        physicsComputeShader.SetBuffer(m_SimulateNodeID, "TotalDForce", _RWTotalDForceBufer);
-        physicsComputeShader.SetBuffer(m_SimulateNodeID, "RWNodeVelocities", _RWNodeVelocitiesBuffer);
-        physicsComputeShader.SetBuffer(m_SimulateNodeID, "RONodeOtherData", _RONodeOtherDataBuffer);
-        physicsComputeShader.SetBuffer(m_SimulateNodeID, "RWNodePositions", _RWNodePositionsBuffer);
-        physicsComputeShader.SetBuffer(m_SimulateNodeID, "RWNodeStiffnessLengthTO", _RWNodeStiffnessLengthTO);
-        physicsComputeShader.SetBuffer(m_SimulateNodeID, "RWStiffnesPoints", _RWStiffnesPointsBuffer);
+ 
+        physicsComputeShader.SetBuffer(m_FSBSimulateNodeID, "RWNodeVelocities", _RWNodeVelocitiesBuffer);
+        physicsComputeShader.SetBuffer(m_FSBSimulateNodeID, "RWNodePositions", _RWNodePositionsBuffer);
+        physicsComputeShader.SetBuffer(m_FSBSimulateNodeID, "RONodeOtherData", _RONodeOtherDataBuffer);
 
         physicsComputeShader.SetBuffer(m_RunCCID, "ROCCData", _ROCCDataBuffer);
         physicsComputeShader.SetBuffer(m_RunCCID, "ROCCCounter", _ROCCCounterBuffer);
@@ -462,103 +390,80 @@ public class SoftBodyGPU : MonoBehaviour
         physicsComputeShader.SetBuffer(m_CCMeshCalcID, "ROTransfONE", _ROTransfONE);
 
 
-        physicsComputeShader.SetBuffer(m_RunCCID, "Diagnostics", _Diagnostics);
+        physicsComputeShader.SetBuffer(m_NodeInterpolation, "RWNodePositions", _RWNodePositionsBuffer);
+        physicsComputeShader.SetBuffer(m_NodeInterpolation, "RONodeOtherData", _RONodeOtherDataBuffer);
+        physicsComputeShader.SetBuffer(m_NodeInterpolation, "RWOriginVertices", _RWOriginNodes);
+        physicsComputeShader.SetBuffer(m_NodeInterpolation, "ROOriginOther", _ROOriginOthers);
 
         physicsComputeShader.SetConstantBuffer(Shader.PropertyToID("SimulationParams"), _otherDBuffer, 0, cStride1);
         physicsComputeShader.SetConstantBuffer(Shader.PropertyToID("ICParams"), _ICParamsConstBuffer, 0, cStride2);
     }
-   
-    [Range(0f, 1f)]
-    public float syncColliderTime;
-    IEnumerator UpdateCollidersRoutine()
-    {
-        while (true)
-        {
-            m_MeshCutter.UpdateAllColliderVertices(_positions);
-            yield return new WaitForSeconds(syncColliderTime);
-        }
-    }
-
-
-    Coroutine _updateColliderRoutine;
-
 
     void GPUUpdate()
     {
-        physicsComputeShader.Dispatch(m_SimulateTrussKarnelID, 18, 18, 1);
-        physicsComputeShader.Dispatch(m_HashTrussForcesID, Extensions.GetLength(_nodesCount, 256), 1, 1);
-        physicsComputeShader.Dispatch(m_SimulateNodeID, Extensions.GetLength(_nodesCount, 256), 1, 1);
-        ///TEST
-        ///
+        _RWNodePositionsBuffer.GetData(_positions);
+        _RWOriginNodes.GetData(_originPos);
+
+        physicsComputeShader.Dispatch(m_FSBSimulateNodeID, Extensions.GetLength(_nodesCount, 256), 1, 1);
+        physicsComputeShader.Dispatch(m_NodeInterpolation, Extensions.GetLength(_originCount, 256), 1, 1);
 
         switch (continiousDetectionKind)
         {
             case ContiniousDetectionKind.None:
                 break;
             case ContiniousDetectionKind.IgnoreMeshCollider:
-               // TryUpdateColliders(_cccolliders.Count != 0);
+                TryUpdateColliders(_cccolliders.Count != 0);
                 RecalculateCollisionData();
                 physicsComputeShader.Dispatch(m_RunCCID, Extensions.GetLength(_nodesCount, 256), 1, 1);
                 break;
             case ContiniousDetectionKind.Everything:
-               // TryUpdateColliders(_cccolliders.Count != 0 || _ccmeshColliders.Count != 0);
+                TryUpdateColliders(_cccolliders.Count != 0 || _ccmeshColliders.Count != 0);
                 RecalculateCollisionData();
                 physicsComputeShader.Dispatch(m_RunCCID, Extensions.GetLength(_nodesCount, 256), 1, 1);
                 RunCCMesh();
                 break;
         }
 
-        _RWNodePositionsBuffer.GetData(_positions);
-        UpdateMesh();
+        UpdateMesh(_originPos, _originMesh);
     }
-   
+
+    [ContextMenu("AAA")]
+    private void TTT()
+    {
+            m_MeshCutter.UpdateAllColliderVertices(_positions);
+    }
+
+
+    Coroutine _updateColliderRoutine;
+    [Range(0f, 1f)]
+    public float syncColliderTime;
+    IEnumerator UpdateCollidersRoutine()
+    {
+        while (true)
+        {
+            m_MeshCutter.UpdateAllColliderVerticesThroughJob(_positions);
+            yield return new WaitForSeconds(syncColliderTime);
+        }
+    }
+
     void TryUpdateColliders(bool update)
     {
         if (update && _updateColliderRoutine == null)
             _updateColliderRoutine = StartCoroutine(UpdateCollidersRoutine());
 
-        else if(_updateColliderRoutine != null)
+        else if (_updateColliderRoutine != null)
         {
             StopCoroutine(_updateColliderRoutine);
             _updateColliderRoutine = null;
         }
     }
 
-    void UpdateMesh()
+    void UpdateMesh(Vector3[] verts, Mesh mesh)
     {
-        _mesh.vertices = _positions;
-        _mesh.RecalculateNormals();
-        _mesh.RecalculateBounds();
-        _mesh.RecalculateTangents();
-        m_MeshFilter.mesh = _mesh;
+        mesh.vertices = verts;
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        mesh.RecalculateTangents();
+        m_MeshFilter.mesh = mesh;
     }
-
-    bool HasPair(List<TrussData> trusses, int leftIndex, int rightIndex)
-    {
-        if (leftIndex == rightIndex) { return true; }
-
-        foreach (var pair in trusses)
-            if (pair.Validate(leftIndex, rightIndex)) { return true; }
-
-        return false;
-    }
-}
-
-
-internal static class Extensions
-{
-    internal static float GetRAD(this Vector3 vector)
-    {
-        float min = vector.x;
-        if (min > vector.y) min = vector.y;
-        if (min > vector.z) min = vector.z;
-        return min;
-    }
-
-    internal static int GetLength(int groupXCount, int threadXCount)
-    {
-        return Mathf.CeilToInt((float)(1f * groupXCount / threadXCount));
-    }
-
-
 }

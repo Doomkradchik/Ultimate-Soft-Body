@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEditor;
 using System;
+using UnityMeshSimplifier;
 
 #if UNITY_EDITOR
 
@@ -42,9 +43,13 @@ public class ConvexMeshCutterEditor : Editor
 
         if (GUILayout.Button("Cut Into Colliders"))
         {
-            var mesh = convexMeshCutter.GetComponent<MeshFilter>().sharedMesh;
+            var mesh = SimpifyMesh(serializedObject.FindProperty("qualityMeshSimp").floatValue, convexMeshCutter.GetComponent<MeshFilter>().sharedMesh);
             var segments = CutToSegments(mesh, convexMeshCutter.cuts);
             InitColliders(segments, mesh.vertices);
+            convexMeshCutter.target = mesh;
+            EditorUtility.SetDirty(target);
+            serializedObject.ApplyModifiedProperties();
+            Debug.Log($"Combined {mesh.vertexCount} vertices to convex meshes");
         }
 
     }
@@ -65,9 +70,6 @@ public class ConvexMeshCutterEditor : Editor
             indexes = segments[i]
             };
         }
-
-        EditorUtility.SetDirty(target);
-        serializedObject.ApplyModifiedProperties();
     }
 
     Vector3[] ConvertToVertices(int[] indexes, Vector3[] vertices)
@@ -114,16 +116,16 @@ public class ConvexMeshCutterEditor : Editor
 
             if (c2 != c1)
             {
-                Append(cutVertices, c2, target.triangles[i]);
-                Append(cutVertices, c2, target.triangles[i]);
-                Append(cutVertices, c2, target.triangles[i]);
+                Append(cutVertices, c2, target.triangles[i + 1]);
+                Append(cutVertices, c2, target.triangles[i + 1]);
+                Append(cutVertices, c2, target.triangles[i + 1]);
             }
 
             if (c3 != c1 && c3 != c2)
             {
-                Append(cutVertices, c2, target.triangles[i]);
-                Append(cutVertices, c2, target.triangles[i]);
-                Append(cutVertices, c2, target.triangles[i]);
+                Append(cutVertices, c3, target.triangles[i + 2]);
+                Append(cutVertices, c3, target.triangles[i + 2]);
+                Append(cutVertices, c3, target.triangles[i + 2]);
             }
         }
 
@@ -137,6 +139,13 @@ public class ConvexMeshCutterEditor : Editor
         return res;
     }
 
+    Mesh SimpifyMesh(float quality, Mesh mesh)
+    {
+        var meshSimplifier = new UnityMeshSimplifier.MeshSimplifier();
+        meshSimplifier.Initialize(mesh);
+        meshSimplifier.SimplifyMesh(quality);
+        return meshSimplifier.ToMesh();
+    }
 
     public Vector3Int CalculateCoord(Vector3 pos, Vector3 size, Vector3Int cuts)
     {

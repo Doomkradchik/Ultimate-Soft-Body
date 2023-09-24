@@ -1,5 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
+using Unity.Collections;
+using Unity.Jobs;
 using UnityEngine;
 
 [RequireComponent(typeof(MeshFilter))]
@@ -7,7 +9,8 @@ public class ConvexMeshCutter : MonoBehaviour
 {
     public Vector3Int cuts;
     [HideInInspector][SerializeField] private ComputeShader vertexConverter;
-
+    [Range(0.1f, 1f)]
+    [SerializeField] private float qualityMeshSimp = 0.5f;
     ComputeBuffer indexes;
     ComputeBuffer outputVerticesBuffer;
     ComputeBuffer ROMeshVerticesBuffer;
@@ -15,14 +18,33 @@ public class ConvexMeshCutter : MonoBehaviour
     [HideInInspector] public ConvexDataPair[] convexPairs;
     Dictionary<MeshCollider, int[]> cutVertexIndexes = new Dictionary<MeshCollider, int[]>();
 
-    public void Init(int vertexCount)
+
+    [HideInInspector] public Mesh target;
+
+
+    struct DestinateSubmeshJob : IJobParallelFor
+    {
+        [ReadOnly]
+        public NativeArray<Vector3> source;
+        [ReadOnly]
+        public NativeArray<int> ID;
+        [WriteOnly]
+        public NativeArray<Vector3> destination;
+
+        public void Execute(int index)
+        {
+            destination[index] = source[ID[index]];
+        }
+    }
+
+    public void Init(int vertCount)
     {
         if (convexPairs == null || convexPairs.Length == 0)
             Debug.LogError("Convex colliders are not updated. Plaease cut the mesh first.");
 
-        indexes = new ComputeBuffer(vertexCount, sizeof(int));
-        outputVerticesBuffer = new ComputeBuffer(vertexCount, sizeof(float) * 3);
-        ROMeshVerticesBuffer = new ComputeBuffer(vertexCount, sizeof(float) * 3);
+        indexes = new ComputeBuffer(vertCount, sizeof(int));
+        outputVerticesBuffer = new ComputeBuffer(vertCount, sizeof(float) * 3);
+        ROMeshVerticesBuffer = new ComputeBuffer(vertCount, sizeof(float) * 3);
 
         vertexConverter.SetBuffer(0, "ID", indexes);
         vertexConverter.SetBuffer(0, "ResultV", outputVerticesBuffer);
@@ -34,9 +56,55 @@ public class ConvexMeshCutter : MonoBehaviour
 
     public void UpdateLocalVerticesSegmentColliders(Vector3[] vertices, int[] localIndexes)
     {
-        throw new System.NotImplementedException();
+        ROMeshVerticesBuffer.SetData(vertices);
+
+        foreach (var pair in cutVertexIndexes)
+        {
+            var verts = pair.Key.sharedMesh.vertices;
+            indexes.SetData(localIndexes);
+            vertexConverter.Dispatch(0, Extensions.GetLength(pair.Value.Length, 64), 1, 1);
+            outputVerticesBuffer.GetData(verts);
+            var mesh = pair.Key.sharedMesh;
+            mesh.vertices = verts;
+            pair.Key.sharedMesh = mesh;
+
+            
+        }
     }
 
+    public void UpdateAllColliderVerticesThroughJob(Vector3[] vertices)
+    {
+        var source = new NativeArray<Vector3>(vertices.Length, Allocator.Persistent);
+        source.CopyFrom(vertices);
+
+        foreach (var pair in cutVertexIndexes)
+        {
+            var length = pair.Value.Length;
+            var id = new NativeArray<int>(length, Allocator.TempJob);
+            var destination = new NativeArray<Vector3>(length, Allocator.TempJob);
+
+            id.CopyFrom(pair.Value);
+            id.AsReadOnly();
+
+            var destinateJob = new DestinateSubmeshJob
+            {
+                source = source,
+                destination = destination,
+                ID = id,
+            };
+
+            var handler = destinateJob.Schedule(length, 64);
+            handler.Complete();
+
+            var mesh = pair.Key.sharedMesh;
+            mesh.vertices = destination.ToArray();
+            pair.Key.sharedMesh = mesh;
+            id.Dispose();
+            destination.Dispose();
+        }
+
+        source.Dispose();
+    }
 
     public void UpdateAllColliderVertices(Vector3[] vertices)
     {
@@ -52,6 +120,11 @@ public class ConvexMeshCutter : MonoBehaviour
             mesh.vertices = outRes;
             pair.Key.sharedMesh = mesh;
         }
+    }
+
+    public void UpdateColliersByAnchors(Vector3[] anchors)
+    {
+        
     }
 }
 
@@ -70,3 +143,4 @@ public static class Vector3Extension
     }
 
 }
+

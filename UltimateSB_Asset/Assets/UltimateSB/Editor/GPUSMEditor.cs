@@ -60,9 +60,9 @@ public class GPUSMEditor : Editor
 
         physicsComputeShaderProp = serializedObject.FindProperty("physicsComputeShader");
         physicsComputeShaderProp.objectReferenceValue = AssetProvider.GetAssetByName("ComputeSB");
-        var icKindStatus = (SoftBodyGPU.ImpulseDetectionKind)icKindProp.enumValueIndex;
+        var icKindStatus = (ImpulseDetectionKind)icKindProp.enumValueIndex;
 
-        if (icKindStatus == SoftBodyGPU.ImpulseDetectionKind.Sphere)
+        if (icKindStatus == ImpulseDetectionKind.Sphere)
         {
             EditorGUILayout.PropertyField(radiusProp, new GUIContent("Radius"));
             EditorGUILayout.Space();

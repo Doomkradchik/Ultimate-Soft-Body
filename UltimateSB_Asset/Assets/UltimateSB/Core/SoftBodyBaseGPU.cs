@@ -1,21 +1,29 @@
-using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
-[RequireComponent(typeof(MeshRenderer))]
-[RequireComponent(typeof(MeshFilter),typeof(ConvexMeshCutter))]
-public class SoftBodyGPU : MonoBehaviour
+public abstract class SoftBodyBaseGPU : MonoBehaviour
 {
+    protected abstract float DampingTrusses {get;}
+
+    bool HasPair(List<TrussData> trusses, int leftIndex, int rightIndex)
+    {
+        if (leftIndex == rightIndex) { return true; }
+
+        foreach (var pair in trusses)
+            if (pair.Validate(leftIndex, rightIndex)) { return true; }
+
+        return false;
+    }
+
     public float scaleMultiplier = 1;
-    [Tooltip("Damping for dynamic trusses. Best value 0.1 / 0.8")]
-    public float dampingTrusses = 0.1f;
+
     [Tooltip("Defines surface tension force. Best value 2.0 / 25.0")]
     [Range(0.05f, 0.9f)]
     public float surfaceTension = 0.5f;
 
-    [HideInInspector][SerializeField] private ComputeShader physicsComputeShader;
+    [HideInInspector] [SerializeField] private ComputeShader physicsComputeShader;
 
     public int maxCollisionsCount = 5;
     public int maxVerticesCount = 3000;
@@ -27,18 +35,15 @@ public class SoftBodyGPU : MonoBehaviour
     [Header("Impulse collision properties")]
     public ImpulseDetectionKind impuseDetectionKind;
 
-    [HideInInspector][SerializeField] internal float impulseDamageMultiplier = 1;
-    [HideInInspector][SerializeField] internal float impulseMinVelocity = 0;
-    [HideInInspector][SerializeField] internal float radius = 1f;
+    [HideInInspector] [SerializeField] internal float impulseDamageMultiplier = 1;
+    [HideInInspector] [SerializeField] internal float impulseMinVelocity = 0;
+    [HideInInspector] [SerializeField] internal float radius = 1f;
 
     private int _trussesCount;
     private int _nodesCount;
 
 
     Mesh _mesh;
-
-    [HideInInspector] public Material[] materials;
-    [HideInInspector] public Color[] colors;
 
     ComputeBuffer _ROTrussesDataBuffer;
     ComputeBuffer _RONodeTInfoBuffer;
@@ -58,6 +63,9 @@ public class SoftBodyGPU : MonoBehaviour
     ComputeBuffer _ROMeshTriONE;
     ComputeBuffer _ROTransfONE;
     ComputeBuffer _Diagnostics;
+
+
+
 
     MeshFilter m_MeshFilter;
     ConvexMeshCutter m_MeshCutter;
@@ -143,10 +151,10 @@ public class SoftBodyGPU : MonoBehaviour
         {
             nodesOther[i] = new NodeOtherData
             {
-                trussesConnected = trussNodeInfosCount[i], 
+                trussesConnected = trussNodeInfosCount[i],
                 startPosition = vertices[i],
                 mass = 0.1f,
-                weight = colors[i].a,
+                //weight = colors[i].a,
                 normal = normals[i],
             };
         }
@@ -154,7 +162,7 @@ public class SoftBodyGPU : MonoBehaviour
         InitializeBuffers();
         FillBuffers(trusses, vertices,
             nodesOther, trussNodeInfos);
-       m_MeshCutter.Init(_mesh.vertexCount);
+        //m_MeshCutter.Init(_mesh.vertexCount);
 
         Debug.Log($"Body initialized successfully: {_nodesCount} nodes, {_trussesCount} trusses");
     }
@@ -263,7 +271,6 @@ public class SoftBodyGPU : MonoBehaviour
             damping = DAMPING,
             nodesCount= _nodesCount,
             collisionType = (int)impuseDetectionKind,
-            dampingT = dampingTrusses
         }};
 
 
@@ -288,8 +295,6 @@ public class SoftBodyGPU : MonoBehaviour
 
     void RecalculateCollisionData()
     {
-        if (_cccolliders.Count == 0) { return; }
-
         for (int i = 0; i < _cccolliders.Count; i++)
             _ccDatas[i] = RefreshCCollisionData(_cccolliders[i]);
 
@@ -313,11 +318,6 @@ public class SoftBodyGPU : MonoBehaviour
 
     void OnCollisionEnter(Collision collision)
     {
-        Debug.Log("FAEFAFAEF");
-
-        if (collision.relativeVelocity.magnitude < impulseMinVelocity)
-            return;
-
         _icData[0] = new ICData
         {
             cpoint = transform.InverseTransformPoint(collision.contacts[0].point),
@@ -335,11 +335,6 @@ public class SoftBodyGPU : MonoBehaviour
         physicsComputeShader.Dispatch(m_RunICID, Extensions.GetLength(_nodesCount, 256), 1, 1);
     }
 
-    void OnCollisionExit(Collision collision)
-    {
-        Debug.Log("OOOOO");
-    }
-
     void OnTriggerEnter(Collider other) => Subscribe(other);
     void OnTriggerExit(Collider other) => Unsubscribe(other);
 
@@ -352,7 +347,7 @@ public class SoftBodyGPU : MonoBehaviour
         foreach (var mc in _ccmeshColliders)
         {
             SetMeshDataProperty(mc);
-            physicsComputeShader.Dispatch(m_CCMeshCalcID,Extensions.GetLength(_nodesCount, 256), 1, 1);
+            physicsComputeShader.Dispatch(m_CCMeshCalcID, Extensions.GetLength(_nodesCount, 256), 1, 1);
         }
     }
 
@@ -391,7 +386,7 @@ public class SoftBodyGPU : MonoBehaviour
             center = sc.center;
             return ColliderType.Sphere;
         }
-        
+
         return ColliderType.Undefined;
     }
 
@@ -467,41 +462,22 @@ public class SoftBodyGPU : MonoBehaviour
         physicsComputeShader.SetConstantBuffer(Shader.PropertyToID("SimulationParams"), _otherDBuffer, 0, cStride1);
         physicsComputeShader.SetConstantBuffer(Shader.PropertyToID("ICParams"), _ICParamsConstBuffer, 0, cStride2);
     }
-   
-    [Range(0f, 1f)]
-    public float syncColliderTime;
-    IEnumerator UpdateCollidersRoutine()
-    {
-        while (true)
-        {
-            m_MeshCutter.UpdateAllColliderVertices(_positions);
-            yield return new WaitForSeconds(syncColliderTime);
-        }
-    }
-
-
-    Coroutine _updateColliderRoutine;
-
 
     void GPUUpdate()
     {
         physicsComputeShader.Dispatch(m_SimulateTrussKarnelID, 18, 18, 1);
         physicsComputeShader.Dispatch(m_HashTrussForcesID, Extensions.GetLength(_nodesCount, 256), 1, 1);
         physicsComputeShader.Dispatch(m_SimulateNodeID, Extensions.GetLength(_nodesCount, 256), 1, 1);
-        ///TEST
-        ///
 
         switch (continiousDetectionKind)
         {
             case ContiniousDetectionKind.None:
                 break;
             case ContiniousDetectionKind.IgnoreMeshCollider:
-               // TryUpdateColliders(_cccolliders.Count != 0);
                 RecalculateCollisionData();
                 physicsComputeShader.Dispatch(m_RunCCID, Extensions.GetLength(_nodesCount, 256), 1, 1);
                 break;
             case ContiniousDetectionKind.Everything:
-               // TryUpdateColliders(_cccolliders.Count != 0 || _ccmeshColliders.Count != 0);
                 RecalculateCollisionData();
                 physicsComputeShader.Dispatch(m_RunCCID, Extensions.GetLength(_nodesCount, 256), 1, 1);
                 RunCCMesh();
@@ -509,56 +485,10 @@ public class SoftBodyGPU : MonoBehaviour
         }
 
         _RWNodePositionsBuffer.GetData(_positions);
-        UpdateMesh();
+     //   UpdateMesh();
+        ///TEST
+        ///
+        if (Input.GetKeyDown(KeyCode.Space))
+            m_MeshCutter.UpdateAllColliderVertices(_positions);
     }
-   
-    void TryUpdateColliders(bool update)
-    {
-        if (update && _updateColliderRoutine == null)
-            _updateColliderRoutine = StartCoroutine(UpdateCollidersRoutine());
-
-        else if(_updateColliderRoutine != null)
-        {
-            StopCoroutine(_updateColliderRoutine);
-            _updateColliderRoutine = null;
-        }
-    }
-
-    void UpdateMesh()
-    {
-        _mesh.vertices = _positions;
-        _mesh.RecalculateNormals();
-        _mesh.RecalculateBounds();
-        _mesh.RecalculateTangents();
-        m_MeshFilter.mesh = _mesh;
-    }
-
-    bool HasPair(List<TrussData> trusses, int leftIndex, int rightIndex)
-    {
-        if (leftIndex == rightIndex) { return true; }
-
-        foreach (var pair in trusses)
-            if (pair.Validate(leftIndex, rightIndex)) { return true; }
-
-        return false;
-    }
-}
-
-
-internal static class Extensions
-{
-    internal static float GetRAD(this Vector3 vector)
-    {
-        float min = vector.x;
-        if (min > vector.y) min = vector.y;
-        if (min > vector.z) min = vector.z;
-        return min;
-    }
-
-    internal static int GetLength(int groupXCount, int threadXCount)
-    {
-        return Mathf.CeilToInt((float)(1f * groupXCount / threadXCount));
-    }
-
-
 }
