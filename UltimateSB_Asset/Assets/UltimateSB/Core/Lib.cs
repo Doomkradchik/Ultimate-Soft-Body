@@ -1,92 +1,108 @@
 using UnityEngine;
 
-[System.Serializable]
-public enum ImpulseDetectionKind : int
+
+namespace UltimateSB.Lib
 {
-    Sphere,
-    Mesh
-}
 
-[System.Serializable]
-public enum ContiniousDetectionKind
-{
-    None,
-    IgnoreMeshCollider,
-    Everything
-}
-
-[System.Serializable]
-public struct TransfE
-{
-    public Vector3 lpos;
-    public Vector3 lscale;
-    public Quaternion lrot;
-    public int trianglesCount;
-    public int colliderType;
-}
-
-[System.Serializable]
-public struct ICData
-{
-    public Vector3 cvel;
-    public Vector3 cpoint;
-}
-
-
-[System.Serializable]
-public struct TrussData
-{
-    public float restLength;
-    public Vector2Int indexPair;
-
-    public bool Validate(int i1, int i2)
+    [System.Serializable]
+    public enum ImpulseDetectionKind : int
     {
-        return (i1 == indexPair.x && i2 == indexPair.y) ||
-              (i1 == indexPair.y && i2 == indexPair.x);
+        Sphere,
+        Mesh
     }
-}
+
+    [System.Serializable]
+    public enum ContiniousDetectionKind
+    {
+        None,
+        IgnoreMeshCollider,
+        Everything
+    }
+
+    [System.Serializable]
+    public struct TransfE
+    {
+        public Vector3 lpos;
+        public Vector3 lscale;
+        public Quaternion lrot;
+        public int trianglesCount;
+        public int colliderType;
+    }
+
+    [System.Serializable]
+    public struct ICData
+    {
+        public Vector3 cvel;
+        public Vector3 cpoint;
+    }
 
 
-[System.Serializable]
-struct CCData
-{
-    public TransfE tre;
-    public float sphRad;
-}
+    [System.Serializable]
+    public struct TrussData
+    {
+        public float restLength;
+        public Vector2Int indexPair;
 
-[System.Serializable]
-struct TrussNodeInfo
-{
-    public int trussID;
-    public int right;
-}
+        public bool Validate(int i1, int i2)
+        {
+            return (i1 == indexPair.x && i2 == indexPair.y) ||
+                  (i1 == indexPair.y && i2 == indexPair.x);
+        }
+    }
 
-[System.Serializable]
-struct NodeOtherData
-{
-    public int trussesConnected;
-    public float mass;
-    public Vector3 normal;
-    public Vector3 startPosition;
-    public float weight;
-}
-[System.Serializable]
-struct ICParams
-{
-    public float damageMultiplier;
-    public float minVelocity;
-    public float kind1radius;
-}
 
-[System.Serializable]
-struct OtherD
-{
-    public float dTime;
-    public float maxAmplitude;
-    public float stiffness;
-    public float stiffnessO;
-    public float damping;
-    public int nodesCount;
-    public int collisionType;
-    public float dampingT;
+    [System.Serializable]
+    public struct CCData
+    {
+        public TransfE tre;
+        public float sphRad;
+    }
+
+    [System.Serializable]
+    public struct TrussNodeInfo
+    {
+        public int trussID;
+        public int right;
+    }
+
+    [System.Serializable]
+    struct NodeOtherData
+    {
+        public int trussesConnected;
+        public float mass;
+        public Vector3 normal;
+        public Vector3 startPosition;
+        public float weight;
+    }
+    [System.Serializable]
+    struct ICParams
+    {
+        public float damageMultiplier;
+        public float minVelocity;
+        public float kind1radius;
+    }
+
+    [System.Serializable]
+    struct OtherD
+    {
+        public float dTime;
+        public float maxAmplitude;
+        public float stiffness;
+        public float stiffnessO;
+        public float damping;
+        public int nodesCount;
+        public int collisionType;
+        public float dampingT;
+    }
+
+
+    [System.Serializable]
+    struct RD
+    {
+        public Vector3 n;
+        public bool itrs;
+        public float dist;
+    }
+
+
 }

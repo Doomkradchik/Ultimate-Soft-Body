@@ -43,10 +43,10 @@ public class ConvexMeshCutterEditor : Editor
 
         if (GUILayout.Button("Cut Into Colliders"))
         {
-            var mesh = SimpifyMesh(serializedObject.FindProperty("qualityMeshSimp").floatValue, convexMeshCutter.GetComponent<MeshFilter>().sharedMesh);
+            var mesh = convexMeshCutter.GetComponent<SolidBodyGPU>().anchorsMesh;//SimpifyMesh(serializedObject.FindProperty("qualityMeshSimp").floatValue, convexMeshCutter.GetComponent<MeshFilter>().sharedMesh);
             var segments = CutToSegments(mesh, convexMeshCutter.cuts);
+          
             InitColliders(segments, mesh.vertices);
-            convexMeshCutter.target = mesh;
             EditorUtility.SetDirty(target);
             serializedObject.ApplyModifiedProperties();
             Debug.Log($"Combined {mesh.vertexCount} vertices to convex meshes");
@@ -139,14 +139,6 @@ public class ConvexMeshCutterEditor : Editor
         return res;
     }
 
-    Mesh SimpifyMesh(float quality, Mesh mesh)
-    {
-        var meshSimplifier = new UnityMeshSimplifier.MeshSimplifier();
-        meshSimplifier.Initialize(mesh);
-        meshSimplifier.SimplifyMesh(quality);
-        return meshSimplifier.ToMesh();
-    }
-
     public Vector3Int CalculateCoord(Vector3 pos, Vector3 size, Vector3Int cuts)
     {
         int x = pos.x <= size.x ? 0 : pos.x > size.x * cuts.x ? cuts.x : (int)(pos.x / size.x);
@@ -155,6 +147,68 @@ public class ConvexMeshCutterEditor : Editor
 
         return new Vector3Int(x, y, z);
     }
+
+    //static Mesh GenerateConvexHull(Mesh sourceMesh, float targetVertexDensity)
+    //{
+    //    int targetVertexCount = Mathf.FloorToInt(sourceMesh.vertexCount * targetVertexDensity);
+
+    //    List<Vector3> convexHullVertices = new List<Vector3>();
+
+    //    Vector3[] vertices = sourceMesh.vertices;
+
+    //    Vector3 lowestVertex = FindLowestVertex(vertices);
+    //    Vector3 currentVertex = lowestVertex;
+    //    Vector3 nextVertex;
+
+    //    do
+    //    {
+    //        convexHullVertices.Add(currentVertex);
+    //        nextVertex = vertices[0];
+
+    //        for (int i = 1; i < vertices.Length; i++)
+    //        {
+    //            if (vertices[i] == currentVertex)
+    //                continue;
+
+    //            if (nextVertex == currentVertex || IsMoreCounterclockwise(vertices[i], currentVertex, nextVertex))
+    //            {
+    //                nextVertex = vertices[i];
+    //            }
+    //        }
+
+    //        currentVertex = nextVertex;
+    //    }
+    //    while (currentVertex != lowestVertex);
+
+    //    // Convert the list of vertices to an array.
+    //    Vector3[] convexHullArray = convexHullVertices.ToArray();
+    //    Mesh convexHullMesh = new Mesh();
+    //    convexHullMesh.vertices = convexHullArray;
+    //    return convexHullMesh;
+    //}
+
+    //static Vector3 FindLowestVertex(Vector3[] vertices)
+    //{
+    //    Vector3 lowestVertex = vertices[0];
+    //    for (int i = 1; i < vertices.Length; i++)
+    //    {
+    //        if (vertices[i].y < lowestVertex.y)
+    //        {
+    //            lowestVertex = vertices[i];
+    //        }
+    //    }
+    //    return lowestVertex;
+    //}
+
+    //static bool IsMoreCounterclockwise(Vector3 a, Vector3 b, Vector3 c)
+    //{
+    //    Vector2 ab = new Vector2(b.x - a.x, b.z - a.z);
+    //    Vector2 ac = new Vector2(c.x - a.x, c.z - a.z);
+
+    //    return (ab.x * ac.y - ab.y * ac.x) > 0;
+    //}
+
 }
+
 
 #endif

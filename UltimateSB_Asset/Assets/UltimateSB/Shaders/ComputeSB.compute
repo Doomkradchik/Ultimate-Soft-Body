@@ -6,6 +6,10 @@
 #pragma kernel CCMeshCalc
 #pragma kernel FSBSimulateNode
 #pragma kernel NodeInter;
+#pragma kernel ICMeshProject;
+#pragma kernel ICMeshOverrideVel;
+#pragma kernel FindMinDist;
+
 
 #define MAX_FLT 10000000.0
 #define MIN_DEF 0.01
@@ -57,6 +61,9 @@ RWStructuredBuffer<float3> RWNodeVelocities: register(u2);
 RWStructuredBuffer<float3> RWTrussForce: register(u3);
 RWStructuredBuffer<float> RWNodeStiffnessLengthTO: register(u4);
 RWStructuredBuffer<float3> RWStiffnesPoints : register(u6); // init in start
+
+RWStructuredBuffer<float> OUTICMinDist : register(u8); 
+RWStructuredBuffer<RD> ICMeshData : register(u9);
 
 [numthreads(8,8,1)]
 void SimulateTruss(uint3 id : SV_DispatchThreadID)
@@ -171,7 +178,7 @@ CCOUT PointTr(float3 np, float3 p1, float3 p2, float3 p3, CCOUT c)
 RD RayTR(float3 ro, float3 rd, float3 a, float3 b, float3 c, bool fo)
 {
     RD outrd;
-    outrd.itrs = false;
+    outrd.itrs = 0;
     outrd.dist = 0.0;
     float epsilon = 0.0000001;
     float3 ba = b - a;
@@ -188,7 +195,7 @@ RD RayTR(float3 ro, float3 rd, float3 a, float3 b, float3 c, bool fo)
     float v = dot(rd, q) * f;
     if (v < 0.0 || u + v > 1.0) return outrd;
     float t = dot(ca, q) * f;
-    outrd.itrs = fo || t > epsilon;
+    outrd.itrs = fo || t > epsilon ? 1 : 0;
     outrd.dist = t;
     return outrd;
 }
@@ -225,7 +232,7 @@ ICOUT ICMeshCalc(uint idx, float3x3 localCM, ICData icd, TransfE tre)
         if(interRD.itrs)
         {       
            float3 dir = icd.cvel - 2 * dot(icd.cvel, interRD.n) * interRD.n;
-           rout.vel = dir * damMul * exp(-1000.0 * interRD.dist) * DAMAGE_K;     
+           rout.vel = dir * damMul * exp(-1000.0 * interRD.dist) * DAMAGE_K;   
            rout.det = true;
            return rout;
         }
@@ -233,7 +240,6 @@ ICOUT ICMeshCalc(uint idx, float3x3 localCM, ICData icd, TransfE tre)
 
     return rout;
 }
-
 
 ICOUT ICSphereCalc(uint idx, ICData icd)
 {
@@ -266,7 +272,7 @@ void CCMeshCalc(uint3 id : SV_DispatchThreadID)
             );
 
        cout = PointTr(RWNodePositions[id.x], trCoord[0], trCoord[1], trCoord[2], cout);
-       if(RayTR(RWNodePositions[id.x], float3(1000.0, 0, 0) + 0.0000001, trCoord[0], trCoord[1], trCoord[2], false).itrs)
+       if(RayTR(RWNodePositions[id.x], float3(1000.0, 0, 0) + 0.0000001, trCoord[0], trCoord[1], trCoord[2], false).itrs == 1)
             itrsC++;
     }
 
@@ -276,6 +282,60 @@ void CCMeshCalc(uint3 id : SV_DispatchThreadID)
          RWNodeVelocities[id.x] = 0;
     }
 }
+
+
+[numthreads(256,1,1)] 
+void ICMeshProject(uint3 id : SV_DispatchThreadID)
+{
+    ICData icd = ROICDataONE[0];
+    TransfE tre = ROTransfONE[0];
+
+    ICOUT res;
+    res.det = false;
+    res.vel = 0;
+
+    float3x3 localCM = GetLocalCoordMatrix(tre.lrot);
+             
+    for(uint i = 0; i < tre.trianglesCount; i +=3)
+    {
+        float3x3 trCoord = float3x3(
+            RELTRANSF(tre, localCM, ROMeshVertONE[ROMeshTriONE[i]]),
+            RELTRANSF(tre, localCM, ROMeshVertONE[ROMeshTriONE[i + 1]]),
+            RELTRANSF(tre, localCM, ROMeshVertONE[ROMeshTriONE[i + 2]])
+            );
+
+        RD interRD = RayTR(RWNodePositions[id.x], -100000.0 * icd.cvel, 
+            trCoord[0], trCoord[1], trCoord[2], false);
+       
+
+         ICMeshData[id.x] = interRD;
+         if(interRD.itrs == 1) {break;}
+    }
+}
+
+[numthreads(1,1,1)] 
+void FindMinDist(uint3 id : SV_DispatchThreadID){
+    float md = 100000.0;
+    for(uint i = 0; i < nodesCount;i ++){
+        if(ICMeshData[i].itrs == 1)
+            md = min(md, ICMeshData[i].dist);  
+    }
+    OUTICMinDist[0] = md;
+}
+
+[numthreads(256,1,1)] 
+void ICMeshOverrideVel(uint3 id : SV_DispatchThreadID){
+    
+     ICData icd = ROICDataONE[0];
+     RD interRD = ICMeshData[id.x];
+     Diagnostics[id.x] = 300.0;
+     if(interRD.itrs == 1) {
+          float3 dir = icd.cvel - 2 * dot(icd.cvel, interRD.n) * interRD.n;
+           RWNodeVelocities[id.x] += dir * damMul * exp(-1000000.0 * (interRD.dist - OUTICMinDist[0])) * DAMAGE_K; 
+       } // +=
+      
+}
+
 
 [numthreads(256,1,1)] 
 void RunIC(uint3 id : SV_DispatchThreadID)
@@ -293,7 +353,7 @@ void RunIC(uint3 id : SV_DispatchThreadID)
                  res = ICSphereCalc(id.x, icd);
                  break;
             case 1:
-                 res = ICMeshCalc(id.x, GetLocalCoordMatrix(tre.lrot), icd, tre);
+                 res = ICMeshCalc(id.x, GetLocalCoordMatrix(tre.lrot), icd, tre);     
                  break;
     }
     if(res.det){
@@ -346,7 +406,7 @@ void SimulateNode(uint3 id : SV_DispatchThreadID)
 [numthreads(256,1,1)]
 void FSBSimulateNode(uint3 id : SV_DispatchThreadID)
 {
-    RWNodeVelocities[id.x]*=FuncM(length(RWNodeVelocities[id.x]), 0.07, 0.03);// simple reducer
+    RWNodeVelocities[id.x]*= 0.7;//FuncM(length(RWNodeVelocities[id.x]), 0.07, 0.03);// simple reducer
     RWNodePositions[id.x] += RWNodeVelocities[id.x] * dTime;
 }
 

@@ -313,8 +313,6 @@ public class SoftBodyGPU : MonoBehaviour
 
     void OnCollisionEnter(Collision collision)
     {
-        Debug.Log("FAEFAFAEF");
-
         if (collision.relativeVelocity.magnitude < impulseMinVelocity)
             return;
 
@@ -333,11 +331,6 @@ public class SoftBodyGPU : MonoBehaviour
 
         _ROICDataONE.SetData(_icData);
         physicsComputeShader.Dispatch(m_RunICID, Extensions.GetLength(_nodesCount, 256), 1, 1);
-    }
-
-    void OnCollisionExit(Collision collision)
-    {
-        Debug.Log("OOOOO");
     }
 
     void OnTriggerEnter(Collider other) => Subscribe(other);
@@ -474,7 +467,7 @@ public class SoftBodyGPU : MonoBehaviour
     {
         while (true)
         {
-            m_MeshCutter.UpdateAllColliderVertices(_positions);
+            m_MeshCutter.DestinateColliders(_positions, Vector3.zero);
             yield return new WaitForSeconds(syncColliderTime);
         }
     }

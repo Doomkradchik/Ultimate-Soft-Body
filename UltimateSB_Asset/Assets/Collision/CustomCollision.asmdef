@@ -1,8 +1,8 @@
 {
-    "name": "UltimateSB.Core",
+    "name": "CustomCollision",
     "rootNamespace": "",
     "references": [
-        "GUID:77ccaf49895b0d64e87cd4b4faf83c49"
+        "GUID:1e94ce8181af61c4381de1af07c56ef1"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

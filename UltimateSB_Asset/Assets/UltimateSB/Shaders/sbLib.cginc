@@ -17,7 +17,7 @@ struct CCData
 struct RD
 {
     float3 n;
-    bool itrs;
+    int itrs;
     float dist;
 };
 

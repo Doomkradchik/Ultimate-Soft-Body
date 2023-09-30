@@ -485,10 +485,6 @@ public abstract class SoftBodyBaseGPU : MonoBehaviour
         }
 
         _RWNodePositionsBuffer.GetData(_positions);
-     //   UpdateMesh();
-        ///TEST
-        ///
-        if (Input.GetKeyDown(KeyCode.Space))
-            m_MeshCutter.UpdateAllColliderVertices(_positions);
+      
     }
 }

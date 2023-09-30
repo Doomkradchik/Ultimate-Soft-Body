@@ -2,7 +2,7 @@ using System.Collections;
 using System.Linq;
 using System.Collections.Generic;
 using UnityEngine;
-
+using UltimateSB.Lib;
 
 [System.Serializable]
 struct OtherFSB
@@ -30,7 +30,7 @@ public class SolidBodyGPU : MonoBehaviour
     public ContiniousDetectionKind continiousDetectionKind;
 
 
-    const float COLL_AMPLITRUDE = 1.1f;
+    const float COLL_AMPLITRUDE = 1.3f;
 
     [Header("Impulse collision properties")]
     public ImpulseDetectionKind impuseDetectionKind;
@@ -40,9 +40,10 @@ public class SolidBodyGPU : MonoBehaviour
     [SerializeField] internal float radius = 1f;
 
     private int _nodesCount;
-
-
-    Mesh _mesh;
+    [Range(0f, 1f)]
+    public float syncColliderTime;
+    [Header("Debug only")]
+    public Mesh anchorsMesh;
 
     ComputeBuffer _RONodeOtherDataBuffer;
     ComputeBuffer _RWNodePositionsBuffer;
@@ -60,11 +61,18 @@ public class SolidBodyGPU : MonoBehaviour
 
     ComputeBuffer _RWOriginNodes;
     ComputeBuffer _ROOriginOthers;
-    
+
+    ComputeBuffer OUTICMinDist;
+    ComputeBuffer ICMeshData;
+
 
     MeshFilter m_MeshFilter;
     ConvexMeshCutter m_MeshCutter;
 
+
+    ComputeBuffer Diagnostics;
+
+    Rigidbody rigidbody;
 
     Vector3[] _positions;
     ICData[] _icData;
@@ -75,37 +83,32 @@ public class SolidBodyGPU : MonoBehaviour
 
     Mesh _originMesh;
 
-    //[System.Serializable]
-    //struct VertInterData
-    //{
-    //    public Vector3Int anch3index;
-    //    public Vector3 anch3weight;
-    //}
-
-
+    MeshRenderer m_MeshRenderer;
 
     void Awake()
     {
+        bounds = new Bounds();
         _ccDatas = new CCData[maxCollisionsCount];
         _trDataONE = new TransfE[1];
         _icData = new ICData[1];
 
         m_MeshFilter = GetComponent<MeshFilter>();
         m_MeshCutter = GetComponent<ConvexMeshCutter>();
+        m_MeshRenderer = GetComponent<MeshRenderer>();
+        rigidbody = GetComponent<Rigidbody>();
 
-     
+
         _originMesh = m_MeshFilter.mesh;
         _originPos = _originMesh.vertices;
         _originCount = _originMesh.vertexCount;
-        _mesh = m_MeshCutter.target;
-        _nodesCount = _mesh.vertexCount;
-        var vertices = m_MeshCutter.target.vertices;
-        var nodesOther = new NodeOtherData[_nodesCount];
-        //var vertInterDatas = new VertInterData[_nodesCount];
-
-        _mesh.RecalculateNormals();
-        var normals = _mesh.normals;
         var originOthers = new NodeOtherData[_originCount];
+
+        _nodesCount = anchorsMesh.vertexCount;
+        var vertices = anchorsMesh.vertices;
+        var nodesOther = new NodeOtherData[_nodesCount];
+        anchorsMesh.RecalculateNormals();
+        var normals = anchorsMesh.normals;
+
 
         for (int i = 0; i < _nodesCount; i++)
         {
@@ -131,19 +134,19 @@ public class SolidBodyGPU : MonoBehaviour
             };
         }
 
-        
 
 
+        velocities = new Vector3[_nodesCount];
 
 
         m_MeshCutter.Init(_nodesCount);
         InitializeBuffers();
-        FillBuffers(vertices, nodesOther, originOthers);
+        FillBuffers(vertices, nodesOther, originOthers, velocities);
 
         Debug.Log($"Body initialized successfully: {_originCount} nodes");
     }
 
-    void FixedUpdate() => GPUUpdate();
+    //void FixedUpdate() => GPUUpdate();
 
 
     void OnDestroy()
@@ -181,6 +184,11 @@ public class SolidBodyGPU : MonoBehaviour
     int m_RunICID { get { return physicsComputeShader.FindKernel("RunIC"); } }
     int m_CCMeshCalcID { get { return physicsComputeShader.FindKernel("CCMeshCalc"); } } //NodeInter
 
+    int m_ICMeshProject { get { return physicsComputeShader.FindKernel("ICMeshProject"); } }
+    int m_ICMeshVelOverride { get { return physicsComputeShader.FindKernel("ICMeshOverrideVel"); } } //NodeInter
+
+    int m_FindMinDist { get { return physicsComputeShader.FindKernel("FindMinDist"); } }
+
     void Subscribe(Collider other)
     {
         if (other is MeshCollider mc)
@@ -208,7 +216,7 @@ public class SolidBodyGPU : MonoBehaviour
 
     const float STIFFNESS = 20f;
 
-    void FillBuffers(Vector3[] nodesPosition, NodeOtherData[] nodeOtherDatas, NodeOtherData[] originOthers)
+    void FillBuffers(Vector3[] nodesPosition, NodeOtherData[] nodeOtherDatas, NodeOtherData[] originOthers, Vector3[] velocities)
     {
         _collisionsCount = new int[1];
         _positions = nodesPosition;
@@ -216,6 +224,7 @@ public class SolidBodyGPU : MonoBehaviour
         _RWOriginNodes.SetData(_originPos);
         _RONodeOtherDataBuffer.SetData(nodeOtherDatas);
         _RWNodePositionsBuffer.SetData(nodesPosition);
+        _RWNodeVelocitiesBuffer.SetData(velocities);
 
         var otherDParams = new OtherD[] {new OtherD {
             dTime = Time.deltaTime,
@@ -265,31 +274,122 @@ public class SolidBodyGPU : MonoBehaviour
     const float DAMAGE_RATIO = 0.2f;
     const float RAD_RATIO = 1.25f;
 
-    void OnCollisionEnter(Collision collision)
+    //void OnCollisionEnter(Collision collision)
+    //{
+
+    //    if (collision.relativeVelocity.magnitude < impulseMinVelocity) { return; }
+
+    //    _icData[0] = new ICData
+    //    {
+    //        cpoint = transform.InverseTransformPoint(collision.contacts[0].point),
+    //        cvel = transform.InverseTransformDirection(collision.relativeVelocity * DAMAGE_RATIO)
+    //    };
+
+    //    if (impuseDetectionKind == ImpulseDetectionKind.Mesh)
+    //    {
+    //        if (collision.collider is MeshCollider mc)
+    //            SetMeshDataProperty(mc);
+    //        else return;
+    //    }
+
+    //    _ROICDataONE.SetData(_icData);
+    //    physicsComputeShader.Dispatch(m_RunICID, Extensions.GetLength(_nodesCount, 256), 1, 1);
+    //    ICRun = true;
+    //}
+
+
+    [ContextMenu("TestCalculation")]
+    void StartRoutine()
     {
-        _icData[0] = new ICData
-        {
-            cpoint = transform.InverseTransformPoint(collision.contacts[0].point),
-            cvel = transform.InverseTransformDirection(collision.relativeVelocity * DAMAGE_RATIO)
-        };
-
-        if (impuseDetectionKind == ImpulseDetectionKind.Mesh)
-        {
-            if (collision.collider is MeshCollider mc)
-                SetMeshDataProperty(mc);
-            else return;
-        }
-
-        _ROICDataONE.SetData(_icData);
-        physicsComputeShader.Dispatch(m_RunICID, Extensions.GetLength(_nodesCount, 256), 1, 1);
+        StartCoroutine(LaunchICPredicitionRoutine());
     }
 
-    void OnTriggerEnter(Collider other) => Subscribe(other);
+
     void OnTriggerExit(Collider other) => Unsubscribe(other);
 
     List<Collider> _cccolliders = new List<Collider>();
     List<MeshCollider> _ccmeshColliders = new List<MeshCollider>();
 
+
+    //private void OnDrawGizmos()
+    //{
+    //    Gizmos.DrawCube(bounds.center, bounds.size);
+    //}
+
+    Bounds bounds;
+
+    IEnumerator LaunchICPredicitionRoutine()
+    {
+        var velocity = rigidbody.velocity;
+        if (velocity.magnitude < impulseMinVelocity  || impuseDetectionKind != ImpulseDetectionKind.Mesh) { yield break; }
+
+        //bounds = GetComponent<MeshRenderer>().bounds;
+        bounds = new Bounds(m_MeshRenderer.bounds.center, m_MeshRenderer.bounds.size);
+        var relativeVel = transform.InverseTransformDirection(velocity);
+        bounds.Encapsulate(velocity * 100f);
+
+        var pair = FindClosestMeshBoundColliderInDirection(velocity.normalized,
+            Physics.OverlapBox(bounds.center, bounds.extents));
+
+        if (pair.Item1 == null) { yield break; }
+       
+        _icData[0] = new ICData
+        {
+            cpoint = Vector3.zero,
+            cvel = relativeVel * -1f * DAMAGE_RATIO
+        };
+
+        Debug.Log(pair.Item2 / velocity.magnitude);
+
+        var time = (pair.Item2 / velocity.magnitude);
+        if (time < 0.6f) { yield break; }
+
+        yield return new WaitForSeconds(time - 0.1f);
+        SetMeshDataProperty(pair.Item1);
+        _ROICDataONE.SetData(_icData);
+        physicsComputeShader.Dispatch(m_ICMeshProject, Extensions.GetLength(_nodesCount, 256), 1, 1);
+        physicsComputeShader.Dispatch(m_FindMinDist, 1, 1, 1);
+        physicsComputeShader.Dispatch(m_ICMeshVelOverride, Extensions.GetLength(_nodesCount, 256), 1, 1);
+
+        yield return null;
+        yield return null;
+
+        _RWNodeVelocitiesBuffer.GetData(velocities);
+        m_MeshCutter.DestinateCollidersOverPrediction(_positions, velocities);
+
+        while (true)
+        {
+            physicsComputeShader.Dispatch(m_FSBSimulateNodeID, Extensions.GetLength(_nodesCount, 256), 1, 1);
+            physicsComputeShader.Dispatch(m_NodeInterpolation, Extensions.GetLength(_originCount, 256), 1, 1);
+            yield return new WaitForFixedUpdate();
+
+            _RWNodePositionsBuffer.GetData(_positions);
+            _RWOriginNodes.GetData(_originPos);
+            UpdateMesh(_originPos, _originMesh);
+        }
+    }
+
+
+    (MeshCollider, float) FindClosestMeshBoundColliderInDirection(Vector3 direction, Collider[] colliders)
+    {
+        float minDist = float.MaxValue;
+        MeshCollider targetCollider = null;
+        if (colliders == null) { return (null, 0); }
+        foreach (var collider in colliders)
+        {
+            if (collider is not MeshCollider mc || collider.GetComponentInParent<SolidBodyGPU>() != null) { continue; }
+            var dist = Vector3.Distance(transform.TransformPoint(_originMesh.bounds.ClosestPoint(direction * 100f)),
+                mc.ClosestPointOnBounds(-100f * direction));
+
+            if (dist < minDist)
+            {
+                minDist = dist;
+                targetCollider = mc;
+            }
+        }
+
+        return (targetCollider, minDist);
+    }
 
     void RunCCMesh()
     {
@@ -358,14 +458,17 @@ public class SolidBodyGPU : MonoBehaviour
         _ROMeshVertONE = new ComputeBuffer(maxVerticesCount, sizeof(float) * 3);
         _ROMeshTriONE = new ComputeBuffer(maxTrianglesCount * 3, sizeof(int));
         _ROTransfONE = new ComputeBuffer(1, sizeof(float) * 10 + sizeof(int) * 2);
-
+        Diagnostics = new ComputeBuffer(_nodesCount, sizeof(float));
 
         var cStride1 = sizeof(float) * 6 + sizeof(int) * 2;
         _otherDBuffer = new ComputeBuffer(1, cStride1, ComputeBufferType.Constant);
 
         var cStride2 = sizeof(float) * 3;
         _ICParamsConstBuffer = new ComputeBuffer(1, cStride2, ComputeBufferType.Constant);
- 
+
+        ICMeshData = new ComputeBuffer(_nodesCount, sizeof(int) + sizeof(float) * 4);
+        OUTICMinDist = new ComputeBuffer(1, sizeof(float));
+
         physicsComputeShader.SetBuffer(m_FSBSimulateNodeID, "RWNodeVelocities", _RWNodeVelocitiesBuffer);
         physicsComputeShader.SetBuffer(m_FSBSimulateNodeID, "RWNodePositions", _RWNodePositionsBuffer);
         physicsComputeShader.SetBuffer(m_FSBSimulateNodeID, "RONodeOtherData", _RONodeOtherDataBuffer);
@@ -382,6 +485,7 @@ public class SolidBodyGPU : MonoBehaviour
         physicsComputeShader.SetBuffer(m_RunICID, "ROMeshVertONE", _ROMeshVertONE);
         physicsComputeShader.SetBuffer(m_RunICID, "ROMeshTriONE", _ROMeshTriONE);
         physicsComputeShader.SetBuffer(m_RunICID, "ROTransfONE", _ROTransfONE);
+        physicsComputeShader.SetBuffer(m_RunICID, "Diagnostics", Diagnostics);
 
         physicsComputeShader.SetBuffer(m_CCMeshCalcID, "RWNodePositions", _RWNodePositionsBuffer);
         physicsComputeShader.SetBuffer(m_CCMeshCalcID, "RWNodeVelocities", _RWNodeVelocitiesBuffer);
@@ -395,53 +499,85 @@ public class SolidBodyGPU : MonoBehaviour
         physicsComputeShader.SetBuffer(m_NodeInterpolation, "RWOriginVertices", _RWOriginNodes);
         physicsComputeShader.SetBuffer(m_NodeInterpolation, "ROOriginOther", _ROOriginOthers);
 
+        physicsComputeShader.SetBuffer(m_ICMeshProject, "ICMeshData", ICMeshData);
+        physicsComputeShader.SetBuffer(m_ICMeshProject, "RWNodePositions", _RWNodePositionsBuffer);
+        physicsComputeShader.SetBuffer(m_ICMeshProject, "ROICDataONE", _ROICDataONE);
+        physicsComputeShader.SetBuffer(m_ICMeshProject, "ROMeshVertONE", _ROMeshVertONE);
+        physicsComputeShader.SetBuffer(m_ICMeshProject, "ROMeshTriONE", _ROMeshTriONE);
+        physicsComputeShader.SetBuffer(m_ICMeshProject, "ROTransfONE", _ROTransfONE);
+
+        physicsComputeShader.SetBuffer(m_ICMeshVelOverride, "OUTICMinDist", OUTICMinDist);
+        physicsComputeShader.SetBuffer(m_ICMeshVelOverride, "ICMeshData", ICMeshData);
+        physicsComputeShader.SetBuffer(m_ICMeshVelOverride, "ROICDataONE", _ROICDataONE);
+        physicsComputeShader.SetBuffer(m_ICMeshVelOverride, "RWNodeVelocities", _RWNodeVelocitiesBuffer);
+        physicsComputeShader.SetBuffer(m_ICMeshVelOverride, "Diagnostics", Diagnostics);
+
+
+        physicsComputeShader.SetBuffer(m_FindMinDist, "OUTICMinDist", OUTICMinDist);
+        physicsComputeShader.SetBuffer(m_FindMinDist, "ICMeshData", ICMeshData);
+
         physicsComputeShader.SetConstantBuffer(Shader.PropertyToID("SimulationParams"), _otherDBuffer, 0, cStride1);
         physicsComputeShader.SetConstantBuffer(Shader.PropertyToID("ICParams"), _ICParamsConstBuffer, 0, cStride2);
     }
 
+    bool ICRun = false;
+    Vector3[] velocities;
+    float[] temp;
     void GPUUpdate()
     {
-        _RWNodePositionsBuffer.GetData(_positions);
-        _RWOriginNodes.GetData(_originPos);
+      //  if (ICRun == false) return;
 
-        physicsComputeShader.Dispatch(m_FSBSimulateNodeID, Extensions.GetLength(_nodesCount, 256), 1, 1);
-        physicsComputeShader.Dispatch(m_NodeInterpolation, Extensions.GetLength(_originCount, 256), 1, 1);
+        //_RWNodePositionsBuffer.GetData(_positions);
+        //_RWOriginNodes.GetData(_originPos);
 
-        switch (continiousDetectionKind)
-        {
-            case ContiniousDetectionKind.None:
-                break;
-            case ContiniousDetectionKind.IgnoreMeshCollider:
-                TryUpdateColliders(_cccolliders.Count != 0);
-                RecalculateCollisionData();
-                physicsComputeShader.Dispatch(m_RunCCID, Extensions.GetLength(_nodesCount, 256), 1, 1);
-                break;
-            case ContiniousDetectionKind.Everything:
-                TryUpdateColliders(_cccolliders.Count != 0 || _ccmeshColliders.Count != 0);
-                RecalculateCollisionData();
-                physicsComputeShader.Dispatch(m_RunCCID, Extensions.GetLength(_nodesCount, 256), 1, 1);
-                RunCCMesh();
-                break;
-        }
+        //if (ICRun)
+        //{
+        //    _RWNodeVelocitiesBuffer.GetData(velocities);
+        //    m_MeshCutter.DestinateCollidersOverPrediction(_positions, velocities);
+        //    ICRun = false;
+        //}
 
-        UpdateMesh(_originPos, _originMesh);
+
+        //physicsComputeShader.Dispatch(m_FSBSimulateNodeID, Extensions.GetLength(_nodesCount, 256), 1, 1);
+        //physicsComputeShader.Dispatch(m_NodeInterpolation, Extensions.GetLength(_originCount, 256), 1, 1);
+
+        //switch (continiousDetectionKind)
+        //{
+        //    case ContiniousDetectionKind.None:
+        //        break;
+        //    case ContiniousDetectionKind.IgnoreMeshCollider:
+        //        //TryUpdateColliders(_cccolliders.Count != 0);
+        //        RecalculateCollisionData();
+        //        physicsComputeShader.Dispatch(m_RunCCID, Extensions.GetLength(_nodesCount, 256), 1, 1);
+        //        break;
+        //    case ContiniousDetectionKind.Everything:
+        //        //TryUpdateColliders(_cccolliders.Count != 0 || _ccmeshColliders.Count != 0);
+        //        RecalculateCollisionData();
+        //        physicsComputeShader.Dispatch(m_RunCCID, Extensions.GetLength(_nodesCount, 256), 1, 1);
+        //        RunCCMesh();
+        //        break;
+        //}
+
+        //UpdateMesh(_originPos, _originMesh);
     }
 
-    [ContextMenu("AAA")]
-    private void TTT()
+    [ContextMenu("DEBUG")]
+    void DebugG(float[] temp)
     {
-            m_MeshCutter.UpdateAllColliderVertices(_positions);
+        for (int i = 0; i < _nodesCount; i++)
+        {
+            Debug.Log(temp[i]);
+        }
     }
 
 
     Coroutine _updateColliderRoutine;
-    [Range(0f, 1f)]
-    public float syncColliderTime;
+
     IEnumerator UpdateCollidersRoutine()
     {
         while (true)
         {
-            m_MeshCutter.UpdateAllColliderVerticesThroughJob(_positions);
+            m_MeshCutter.DestinateColliders(_positions, Vector3.zero);
             yield return new WaitForSeconds(syncColliderTime);
         }
     }

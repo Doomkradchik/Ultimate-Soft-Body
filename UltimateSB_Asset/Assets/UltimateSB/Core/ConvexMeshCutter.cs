@@ -8,9 +8,7 @@ using UnityEngine;
 public class ConvexMeshCutter : MonoBehaviour
 {
     public Vector3Int cuts;
-    [HideInInspector][SerializeField] private ComputeShader vertexConverter;
-    [Range(0.1f, 1f)]
-    [SerializeField] private float qualityMeshSimp = 0.5f;
+    [HideInInspector] [SerializeField] private ComputeShader vertexConverter;
     ComputeBuffer indexes;
     ComputeBuffer outputVerticesBuffer;
     ComputeBuffer ROMeshVerticesBuffer;
@@ -19,11 +17,9 @@ public class ConvexMeshCutter : MonoBehaviour
     Dictionary<MeshCollider, int[]> cutVertexIndexes = new Dictionary<MeshCollider, int[]>();
 
 
-    [HideInInspector] public Mesh target;
-
-
     struct DestinateSubmeshJob : IJobParallelFor
     {
+        public Vector3 offset;
         [ReadOnly]
         public NativeArray<Vector3> source;
         [ReadOnly]
@@ -33,9 +29,29 @@ public class ConvexMeshCutter : MonoBehaviour
 
         public void Execute(int index)
         {
-            destination[index] = source[ID[index]];
+            destination[index] = source[ID[index]] + offset;
         }
     }
+
+    struct DestinateSubmeshOverPredictionJob : IJobParallelFor
+    {
+        [ReadOnly]
+        public NativeArray<Vector3> source;
+        [ReadOnly]
+        public NativeArray<Vector3> vels;
+        [ReadOnly]
+        public NativeArray<int> ID;
+        [WriteOnly]
+        public NativeArray<Vector3> destination;
+
+        public float k;
+
+        public void Execute(int index)
+        {
+            destination[index] = source[ID[index]] + vels[ID[index]] * k;
+        }
+    }
+
 
     public void Init(int vertCount)
     {
@@ -54,25 +70,60 @@ public class ConvexMeshCutter : MonoBehaviour
             cutVertexIndexes.Add(pair.meshCollider, pair.indexes);
     }
 
-    public void UpdateLocalVerticesSegmentColliders(Vector3[] vertices, int[] localIndexes)
+    Collider tColl;
+
+    public void OnContact(Collider collider)
     {
-        ROMeshVerticesBuffer.SetData(vertices);
+        tColl = collider;
+        foreach (var coll in cutVertexIndexes.Keys)
+            Physics.IgnoreCollision(coll, collider);
+    }
+
+    public void Unfreeze()
+    {
+        foreach (var coll in cutVertexIndexes.Keys)
+            Physics.IgnoreCollision(coll, tColl, false);
+    }
+
+    public void DestinateCollidersOverPrediction(Vector3[] vertices, Vector3[] velocities)
+    {
+        var source = new NativeArray<Vector3>(vertices.Length, Allocator.Persistent);
+        var vels = new NativeArray<Vector3>(velocities.Length, Allocator.Persistent);
+        source.CopyFrom(vertices);
+        vels.CopyFrom(velocities);
 
         foreach (var pair in cutVertexIndexes)
         {
-            var verts = pair.Key.sharedMesh.vertices;
-            indexes.SetData(localIndexes);
-            vertexConverter.Dispatch(0, Extensions.GetLength(pair.Value.Length, 64), 1, 1);
-            outputVerticesBuffer.GetData(verts);
-            var mesh = pair.Key.sharedMesh;
-            mesh.vertices = verts;
-            pair.Key.sharedMesh = mesh;
+            var length = pair.Value.Length;
+            var id = new NativeArray<int>(length, Allocator.TempJob);
+            var destination = new NativeArray<Vector3>(length, Allocator.TempJob);
 
-            
+            id.CopyFrom(pair.Value);
+            id.AsReadOnly();
+
+            var destinateJob = new DestinateSubmeshOverPredictionJob
+            {
+                source = source,
+                destination = destination,
+                vels = vels,
+                ID = id,
+                k = 0.04f
+            };
+
+            var handler = destinateJob.Schedule(length, 64);
+            handler.Complete();
+
+            var mesh = pair.Key.sharedMesh;
+            mesh.vertices = destination.ToArray();
+            pair.Key.sharedMesh = mesh;
+            id.Dispose();
+            destination.Dispose();
         }
+
+        source.Dispose();
     }
 
-    public void UpdateAllColliderVerticesThroughJob(Vector3[] vertices)
+    public void DestinateColliders(Vector3[] vertices, Vector3 offset)
     {
         var source = new NativeArray<Vector3>(vertices.Length, Allocator.Persistent);
         source.CopyFrom(vertices);
@@ -91,6 +142,7 @@ public class ConvexMeshCutter : MonoBehaviour
                 source = source,
                 destination = destination,
                 ID = id,
+                offset = offset
             };
 
             var handler = destinateJob.Schedule(length, 64);
@@ -106,26 +158,7 @@ public class ConvexMeshCutter : MonoBehaviour
         source.Dispose();
     }
 
-    public void UpdateAllColliderVertices(Vector3[] vertices)
-    {
-        ROMeshVerticesBuffer.SetData(vertices);
 
-        foreach (var pair in cutVertexIndexes)
-        {
-            var outRes = new Vector3[pair.Value.Length];
-            indexes.SetData(pair.Value);
-            vertexConverter.Dispatch(0, Extensions.GetLength(pair.Value.Length, 64), 1, 1);
-            outputVerticesBuffer.GetData(outRes);
-            var mesh = pair.Key.sharedMesh;
-            mesh.vertices = outRes;
-            pair.Key.sharedMesh = mesh;
-        }
-    }
-
-    public void UpdateColliersByAnchors(Vector3[] anchors)
-    {
-        
-    }
 }
 
 [System.Serializable]
