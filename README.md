@@ -24,8 +24,3 @@ To get started with Ultimate Soft Body, refer to the [documentation](#link-to-do
 
 We welcome contributions from the community! If you'd like to contribute to the development of Ultimate Soft Body, please refer to our [Contribution Guidelines](#link-to-contribution-guidelines).
 
-### License:
-
-This project is licensed under the [MIT License](#link-to-license). Feel free to use, modify, and distribute it in accordance with the terms specified in the license.
-
-Explore the possibilities of Ultimate Soft Body and elevate the soft body simulation experience in your games!
