@@ -19,21 +19,6 @@ Welcome to Ultimate Soft Body, an advanced GPU-accelerated soft body simulation 
 
 To get started with Ultimate Soft Body, refer to the [documentation](#link-to-documentation) for installation instructions, usage guidelines, and example code snippets.
 
-### Example:
-
-```python
-import ultimate_soft_body
-
-# Initialize soft body simulation
-soft_body_sim = ultimate_soft_body.SoftBodySim()
-
-# Set simulation parameters
-soft_body_sim.set_parameters(stiffness=0.8, damping=0.5, ...)
-
-# Simulate and render soft body
-soft_body_sim.update()
-soft_body_sim.render()
-```
 
 ### Contributing:
 
